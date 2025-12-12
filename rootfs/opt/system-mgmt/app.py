@@ -62,6 +62,30 @@ DATA_PARTITION = '/data'
 OVERLAY_UPPER = '/data/overlay/upper'
 OVERLAY_WORK = '/data/overlay/work'
 
+# Log sources configuration
+LOG_SOURCES = {
+    'syslog': {
+        'name': 'System Log',
+        'path': '/var/log/messages',
+        'description': 'Main system log'
+    },
+    'dmesg': {
+        'name': 'Kernel Messages',
+        'path': None,  # Special: uses dmesg command
+        'description': 'Kernel ring buffer'
+    },
+    'auth': {
+        'name': 'Authentication Log',
+        'path': '/var/log/system-mgmt-auth.log',
+        'description': 'WebUI login attempts'
+    },
+    'boot': {
+        'name': 'Boot Log',
+        'path': '/var/log/boot.log',
+        'description': 'System boot messages'
+    }
+}
+
 # CPU stats tracking for percentage calculation
 _prev_cpu_stats = None
 _prev_cpu_time = None
@@ -373,6 +397,98 @@ def format_bytes(bytes_val):
     return f"{bytes_val:.1f} PB"
 
 
+def get_log_sources():
+    """Get list of available log sources with their status."""
+    sources = []
+    for key, config in LOG_SOURCES.items():
+        source = {
+            'id': key,
+            'name': config['name'],
+            'description': config['description'],
+            'available': True
+        }
+        # Check if file exists (except for dmesg which is always available)
+        if config['path'] is not None:
+            source['available'] = os.path.exists(config['path'])
+        sources.append(source)
+    return sources
+
+
+def read_log_file(source_id, lines=100, search=None):
+    """
+    Read log file content.
+
+    Args:
+        source_id: Log source identifier
+        lines: Number of lines to return (from end of file)
+        search: Optional search string to filter lines
+
+    Returns:
+        dict with 'lines' (list of log lines) and 'total' (total matching lines)
+    """
+    if source_id not in LOG_SOURCES:
+        return {'error': f'Unknown log source: {source_id}', 'lines': [], 'total': 0}
+
+    config = LOG_SOURCES[source_id]
+    log_lines = []
+
+    try:
+        # Special handling for dmesg
+        if source_id == 'dmesg':
+            result = subprocess.run(
+                ['dmesg', '-T'],  # -T for human-readable timestamps
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                log_lines = result.stdout.strip().split('\n')
+            else:
+                # Try without -T flag (older systems)
+                result = subprocess.run(
+                    ['dmesg'],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                log_lines = result.stdout.strip().split('\n') if result.returncode == 0 else []
+        else:
+            # Read from file
+            path = config['path']
+            if not os.path.exists(path):
+                return {'error': f'Log file not found: {path}', 'lines': [], 'total': 0}
+
+            with open(path, 'r', errors='replace') as f:
+                log_lines = f.readlines()
+            log_lines = [line.rstrip('\n') for line in log_lines]
+
+        # Filter by search term if provided
+        if search:
+            search_lower = search.lower()
+            log_lines = [line for line in log_lines if search_lower in line.lower()]
+
+        total = len(log_lines)
+
+        # Return last N lines
+        if lines > 0 and len(log_lines) > lines:
+            log_lines = log_lines[-lines:]
+
+        return {
+            'lines': log_lines,
+            'total': total,
+            'returned': len(log_lines),
+            'source': source_id,
+            'source_name': config['name']
+        }
+
+    except subprocess.TimeoutExpired:
+        return {'error': 'Timeout reading log', 'lines': [], 'total': 0}
+    except PermissionError:
+        return {'error': 'Permission denied', 'lines': [], 'total': 0}
+    except Exception as e:
+        return {'error': str(e), 'lines': [], 'total': 0}
+
+
 def perform_factory_reset():
     """Perform factory reset by clearing overlay directories."""
     errors = []
@@ -547,6 +663,28 @@ def api_hostname():
 def api_network():
     """Return network information."""
     return jsonify(get_network_info())
+
+
+@app.route('/api/logs/sources')
+@login_required
+def api_log_sources():
+    """Return available log sources."""
+    return jsonify(get_log_sources())
+
+
+@app.route('/api/logs/<source_id>')
+@login_required
+def api_log_content(source_id):
+    """Return log content for a specific source."""
+    # Get query parameters
+    lines = request.args.get('lines', 100, type=int)
+    search = request.args.get('search', None, type=str)
+
+    # Limit max lines to prevent memory issues
+    lines = min(lines, 1000)
+
+    result = read_log_file(source_id, lines=lines, search=search)
+    return jsonify(result)
 
 
 @app.route('/api/factory-reset', methods=['POST'])

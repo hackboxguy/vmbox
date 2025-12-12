@@ -526,6 +526,35 @@
             </div>
         </div>
 
+        <!-- Log Viewer Card (full width) -->
+        <div class="card log-viewer-card">
+            <h2>Log Viewer</h2>
+            <div class="log-controls">
+                <select id="log-source" class="log-select" onchange="loadLogs()">
+                    <option value="">Loading sources...</option>
+                </select>
+                <input type="text" id="log-search" class="log-search" placeholder="Search logs..." onkeyup="debounceLogSearch()">
+                <select id="log-lines" class="log-select" onchange="loadLogs()">
+                    <option value="50">50 lines</option>
+                    <option value="100" selected>100 lines</option>
+                    <option value="200">200 lines</option>
+                    <option value="500">500 lines</option>
+                    <option value="1000">1000 lines</option>
+                </select>
+                <button class="btn btn-secondary btn-sm" onclick="loadLogs()">Refresh</button>
+                <label class="auto-refresh-label">
+                    <input type="checkbox" id="log-auto-refresh" onchange="toggleLogAutoRefresh()">
+                    Auto-refresh
+                </label>
+            </div>
+            <div class="log-info">
+                <span id="log-status">Select a log source</span>
+            </div>
+            <div class="log-content" id="log-content">
+                <div class="log-placeholder">Select a log source to view logs</div>
+            </div>
+        </div>
+
         <footer>
             Last updated: <span id="last-update">-</span>
         </footer>
@@ -619,6 +648,150 @@
             border-radius: 6px;
             margin-bottom: 15px;
             font-size: 0.9em;
+        }
+
+        /* Log Viewer Styles */
+        .log-viewer-card {
+            margin-top: 20px;
+        }
+
+        .log-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .log-select {
+            padding: 8px 12px;
+            background: #1f3460;
+            border: 1px solid #2a4a8a;
+            border-radius: 6px;
+            color: #eee;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+
+        .log-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .log-search {
+            flex: 1;
+            min-width: 150px;
+            padding: 8px 12px;
+            background: #1f3460;
+            border: 1px solid #2a4a8a;
+            border-radius: 6px;
+            color: #eee;
+            font-size: 0.9em;
+        }
+
+        .log-search:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .log-search::placeholder {
+            color: #555;
+        }
+
+        .btn-sm {
+            flex: 0;
+            min-width: auto;
+            padding: 8px 16px;
+            font-size: 0.85em;
+        }
+
+        .auto-refresh-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #888;
+            font-size: 0.9em;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .auto-refresh-label input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .log-info {
+            margin-bottom: 10px;
+            font-size: 0.85em;
+            color: #888;
+        }
+
+        .log-content {
+            background: #0d1421;
+            border: 1px solid #1f3460;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 0.85em;
+            line-height: 1.5;
+        }
+
+        .log-placeholder {
+            color: #555;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .log-line {
+            white-space: pre-wrap;
+            word-break: break-all;
+            padding: 2px 0;
+            border-bottom: 1px solid #1a2540;
+        }
+
+        .log-line:last-child {
+            border-bottom: none;
+        }
+
+        .log-line:hover {
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .log-line .highlight {
+            background: rgba(255, 215, 0, 0.3);
+            color: #ffd700;
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+
+        .log-error {
+            color: #ff6b6b;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .log-loading {
+            color: #667eea;
+            text-align: center;
+            padding: 20px;
+        }
+
+        @media (max-width: 600px) {
+            .log-controls {
+                flex-direction: column;
+            }
+
+            .log-select, .log-search {
+                width: 100%;
+            }
+
+            .log-content {
+                max-height: 300px;
+                font-size: 0.8em;
+            }
         }
     </style>
 
@@ -920,14 +1093,137 @@
             }
         }
 
+        // ===== Log Viewer Functions =====
+        let logAutoRefreshInterval = null;
+        let logSearchTimeout = null;
+
+        async function loadLogSources() {
+            const select = document.getElementById('log-source');
+            try {
+                const response = await fetch('/api/logs/sources');
+                const sources = await response.json();
+
+                select.innerHTML = '<option value="">Select log source...</option>';
+                sources.forEach(source => {
+                    const option = document.createElement('option');
+                    option.value = source.id;
+                    option.textContent = source.name;
+                    option.title = source.description;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Failed to load log sources:', error);
+                select.innerHTML = '<option value="">Error loading sources</option>';
+            }
+        }
+
+        async function loadLogs() {
+            const sourceId = document.getElementById('log-source').value;
+            const lines = document.getElementById('log-lines').value;
+            const search = document.getElementById('log-search').value;
+            const logContent = document.getElementById('log-content');
+            const logStatus = document.getElementById('log-status');
+
+            if (!sourceId) {
+                logContent.innerHTML = '<div class="log-placeholder">Select a log source to view logs</div>';
+                logStatus.textContent = 'Select a log source';
+                return;
+            }
+
+            logContent.innerHTML = '<div class="log-loading">Loading logs...</div>';
+            logStatus.textContent = 'Loading...';
+
+            try {
+                let url = `/api/logs/${sourceId}?lines=${lines}`;
+                if (search) {
+                    url += `&search=${encodeURIComponent(search)}`;
+                }
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.error) {
+                    logContent.innerHTML = `<div class="log-error">${escapeHtml(data.error)}</div>`;
+                    logStatus.textContent = 'Error loading logs';
+                    return;
+                }
+
+                if (!data.lines || data.lines.length === 0) {
+                    logContent.innerHTML = '<div class="log-placeholder">No log entries found</div>';
+                    logStatus.textContent = `${data.source || sourceId} - No entries`;
+                    return;
+                }
+
+                // Render log lines with optional search highlighting
+                const html = data.lines.map(line => {
+                    let escaped = escapeHtml(line);
+                    if (search) {
+                        // Highlight search term (case-insensitive)
+                        const regex = new RegExp(`(${escapeRegex(search)})`, 'gi');
+                        escaped = escaped.replace(regex, '<span class="highlight">$1</span>');
+                    }
+                    return `<div class="log-line">${escaped}</div>`;
+                }).join('');
+
+                logContent.innerHTML = html;
+                logStatus.textContent = `${data.source || sourceId} - ${data.lines.length} lines${search ? ` (filtered)` : ''}`;
+
+                // Scroll to bottom for newest entries
+                logContent.scrollTop = logContent.scrollHeight;
+            } catch (error) {
+                console.error('Failed to load logs:', error);
+                logContent.innerHTML = `<div class="log-error">Failed to load logs: ${escapeHtml(error.message)}</div>`;
+                logStatus.textContent = 'Error';
+            }
+        }
+
+        function debounceLogSearch() {
+            clearTimeout(logSearchTimeout);
+            logSearchTimeout = setTimeout(() => {
+                if (document.getElementById('log-source').value) {
+                    loadLogs();
+                }
+            }, 300);
+        }
+
+        function toggleLogAutoRefresh() {
+            const checkbox = document.getElementById('log-auto-refresh');
+
+            if (checkbox.checked) {
+                // Start auto-refresh every 5 seconds
+                loadLogs();
+                logAutoRefreshInterval = setInterval(loadLogs, 5000);
+            } else {
+                // Stop auto-refresh
+                if (logAutoRefreshInterval) {
+                    clearInterval(logAutoRefreshInterval);
+                    logAutoRefreshInterval = null;
+                }
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
         // Initialize
         loadVersionInfo();
         connectSSE();
+        loadLogSources();
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', function() {
             if (eventSource) {
                 eventSource.close();
+            }
+            if (logAutoRefreshInterval) {
+                clearInterval(logAutoRefreshInterval);
             }
         });
     </script>

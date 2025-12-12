@@ -196,8 +196,27 @@ The dashboard provides:
 - **Disk usage** for all mounted partitions
 - **Network stats** including RX/TX traffic
 - **System uptime** and version information
+- **Log Viewer** with multiple log sources, search, and auto-refresh
+- **Change Password** to update system credentials
 - **Factory Reset** button to restore original state
 - **Reboot** button for system restart
+
+### Log Viewer
+
+The integrated log viewer allows you to view and search system logs directly from the dashboard.
+
+**Available Log Sources:**
+- **System Log** (`/var/log/messages`) - Main system log
+- **Kernel Messages** (dmesg) - Kernel ring buffer
+- **Authentication Log** (`/var/log/system-mgmt-auth.log`) - WebUI login attempts
+- **Boot Log** (`/var/log/boot.log`) - System boot messages
+
+**Features:**
+- Select from multiple log sources
+- Configurable line count (50-1000 lines)
+- Real-time search/filter with highlighting
+- Auto-refresh option (5-second interval)
+- Scroll to latest entries
 
 ### API Endpoints
 
@@ -216,6 +235,8 @@ All API endpoints require authentication (except `/login`).
 | `/api/system/disk` | GET | Disk usage |
 | `/api/system/network` | GET | Network interface info |
 | `/api/change-password` | POST | Change user password |
+| `/api/logs/sources` | GET | List available log sources |
+| `/api/logs/<source_id>` | GET | Get log content (params: `lines`, `search`) |
 | `/api/factory-reset` | POST | Reset to factory defaults |
 | `/api/reboot` | POST | Reboot the system |
 

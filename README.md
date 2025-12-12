@@ -286,4 +286,4 @@ If you get a serial port error on Windows, disable it:
 
 ## License
 
-MIT License - See LICENSE file for details.
+GPL v2 License - See LICENSE file for details.

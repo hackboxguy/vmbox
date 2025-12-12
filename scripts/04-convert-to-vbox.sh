@@ -305,7 +305,7 @@ show_summary() {
     echo "CPUs:        $VM_CPUS"
     echo ""
     echo "Access:"
-    echo "  SSH:            ssh -p ${SSH_HOST_PORT} pi@localhost"
+    echo "  SSH:            ssh -p ${SSH_HOST_PORT} ${DEFAULT_USERNAME}@localhost"
     echo "  System Mgmt:    http://localhost:${SYSMGMT_HOST_PORT}/"
     echo "  Business App:   http://localhost:${BUSINESS_HOST_PORT}/"
     if [ "$ENABLE_SERIAL" = "true" ]; then

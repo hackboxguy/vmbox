@@ -94,14 +94,38 @@ VBoxManage startvm alpine-demo --type gui
 
 | Service | URL/Command |
 |---------|-------------|
-| SSH | `ssh -p 2222 pi@localhost` |
+| SSH | `ssh -p 2222 admin@localhost` |
 | System Management | http://localhost:8000 |
 | Business App | http://localhost:8001 |
 
 ### Default Credentials
 
-- **Username**: `pi`
+- **Username**: `admin`
 - **Password**: `brb0x`
+
+These credentials are used for:
+- SSH access
+- Serial console terminal
+- System Management WebUI
+
+### Changing Password
+
+You can change the password in two ways:
+
+1. **Via Web UI**: Click the "Change Password" button in the Actions section of the dashboard
+2. **Via SSH or serial console**:
+   ```bash
+   passwd admin
+   ```
+
+The new password will be used for all access methods (SSH, terminal, and WebUI).
+
+### Password Recovery
+
+If you forget your password, you have two options:
+
+1. **Factory Reset** (if you can access the WebUI): Click the Factory Reset button
+2. **Reimport OVA**: Delete the VM and reimport the original OVA file to restore default credentials
 
 ## Build Options
 
@@ -153,7 +177,18 @@ This creates `/tmp/alpine-build/alpine-demo.ova` which can be imported via:
 
 ![System Management Dashboard](images/system-ui.png)
 
-The built-in dashboard at http://localhost:8000 provides:
+The built-in dashboard at http://localhost:8000 provides a secure web interface for system monitoring and management.
+
+### Authentication
+
+The WebUI requires authentication using the same credentials as SSH/terminal access. Features:
+- Shadow-based authentication (synced with system password)
+- 30-minute session timeout
+- Failed login attempts are logged to `/var/log/system-mgmt-auth.log`
+
+### Features
+
+The dashboard provides:
 
 - **Real-time monitoring** via Server-Sent Events (1-second updates)
 - **CPU usage** gauge with percentage and load averages
@@ -166,8 +201,12 @@ The built-in dashboard at http://localhost:8000 provides:
 
 ### API Endpoints
 
+All API endpoints require authentication (except `/login`).
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/login` | GET/POST | Login page and authentication |
+| `/logout` | GET | Log out and clear session |
 | `/` | GET | Dashboard HTML page |
 | `/api/stream` | GET | SSE stream for real-time updates |
 | `/api/version` | GET | Image version information |
@@ -176,6 +215,7 @@ The built-in dashboard at http://localhost:8000 provides:
 | `/api/system/memory` | GET | Memory usage |
 | `/api/system/disk` | GET | Disk usage |
 | `/api/system/network` | GET | Network interface info |
+| `/api/change-password` | POST | Change user password |
 | `/api/factory-reset` | POST | Reset to factory defaults |
 | `/api/reboot` | POST | Reboot the system |
 

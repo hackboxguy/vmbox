@@ -353,7 +353,7 @@ install_first_boot_scripts() {
     fi
 
     # Create first-boot script for SSH key generation
-    cat > "${ROOTFS_DIR}/etc/local.d/first-boot.start" <<'EOF'
+    cat > "${ROOTFS_DIR}/etc/local.d/first-boot.start" <<EOF
 #!/bin/sh
 # First boot initialization script
 
@@ -387,9 +387,9 @@ if [ -d /data ]; then
     mkdir -p /data/var /data/home
 
     # Create user home if it doesn't exist
-    if [ ! -d /data/home/pi ]; then
-        mkdir -p /data/home/pi
-        chown 1000:1000 /data/home/pi
+    if [ ! -d /data/home/${DEFAULT_USERNAME} ]; then
+        mkdir -p /data/home/${DEFAULT_USERNAME}
+        chown ${DEFAULT_USER_UID}:${DEFAULT_USER_GID} /data/home/${DEFAULT_USERNAME}
     fi
 fi
 

@@ -6,12 +6,16 @@ This Flask application provides system monitoring and management endpoints
 for the VirtualBox Alpine demo image.
 
 Features:
+    - Shadow-based authentication (same credentials as SSH/terminal)
     - Real-time system stats via Server-Sent Events (SSE)
     - Dashboard with live CPU, memory, disk, and network monitoring
     - Factory reset and reboot capabilities
 
 Endpoints:
-    GET  /                      - Dashboard HTML page
+    GET  /                      - Dashboard HTML page (requires login)
+    GET  /login                 - Login page
+    POST /login                 - Authenticate user
+    GET  /logout                - Log out and clear session
     GET  /api/stream            - SSE stream for real-time updates
     GET  /api/version           - Image version information
     GET  /api/system/info       - All system information
@@ -29,10 +33,28 @@ import os
 import subprocess
 import json
 import time
-from datetime import datetime
-from flask import Flask, jsonify, render_template, request, Response
+import crypt
+import hmac
+import logging
+from datetime import datetime, timedelta
+from functools import wraps
+from flask import Flask, jsonify, render_template, request, Response, session, redirect, url_for
 
 app = Flask(__name__)
+
+# Session configuration
+app.secret_key = os.urandom(24)  # Generate random secret key on startup
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# Setup logging for failed login attempts
+logging.basicConfig(
+    filename='/var/log/system-mgmt-auth.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+auth_logger = logging.getLogger('auth')
 
 # Configuration
 VERSION_FILE = '/etc/image-version'
@@ -43,6 +65,52 @@ OVERLAY_WORK = '/data/overlay/work'
 # CPU stats tracking for percentage calculation
 _prev_cpu_stats = None
 _prev_cpu_time = None
+
+
+def verify_shadow_password(username, password):
+    """
+    Verify password against /etc/shadow file.
+    Returns True if password is correct, False otherwise.
+    """
+    try:
+        with open('/etc/shadow', 'r') as f:
+            for line in f:
+                parts = line.strip().split(':')
+                if len(parts) >= 2 and parts[0] == username:
+                    stored_hash = parts[1]
+                    # Handle locked or disabled accounts
+                    if stored_hash in ('!', '*', '!!', ''):
+                        return False
+                    # Verify password using crypt
+                    computed_hash = crypt.crypt(password, stored_hash)
+                    return hmac.compare_digest(computed_hash, stored_hash)
+    except PermissionError:
+        auth_logger.error(f"Permission denied reading /etc/shadow")
+        return False
+    except Exception as e:
+        auth_logger.error(f"Error verifying password: {e}")
+        return False
+    return False
+
+
+def login_required(f):
+    """Decorator to require authentication for a route."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' not in session:
+            if request.is_json or request.path.startswith('/api/'):
+                return jsonify({'error': 'Authentication required'}), 401
+            return redirect(url_for('login'))
+        # Check session expiry
+        if 'login_time' in session:
+            login_time = datetime.fromisoformat(session['login_time'])
+            if datetime.now() - login_time > timedelta(minutes=30):
+                session.clear()
+                if request.is_json or request.path.startswith('/api/'):
+                    return jsonify({'error': 'Session expired'}), 401
+                return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 def read_version_info():
@@ -360,13 +428,48 @@ def generate_sse_stream():
 
 # Routes
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handle user login."""
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        client_ip = request.remote_addr
+
+        if not username or not password:
+            return render_template('login.html', error='Username and password required')
+
+        if verify_shadow_password(username, password):
+            session.permanent = True
+            session['username'] = username
+            session['login_time'] = datetime.now().isoformat()
+            auth_logger.info(f"Successful login for user '{username}' from {client_ip}")
+            return redirect(url_for('index'))
+        else:
+            auth_logger.warning(f"Failed login attempt for user '{username}' from {client_ip}")
+            return render_template('login.html', error='Invalid username or password')
+
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    """Log out the current user."""
+    username = session.get('username', 'unknown')
+    session.clear()
+    auth_logger.info(f"User '{username}' logged out")
+    return redirect(url_for('login'))
+
+
 @app.route('/')
+@login_required
 def index():
     """Render the dashboard page."""
-    return render_template('index.html')
+    return render_template('index.html', username=session.get('username'))
 
 
 @app.route('/api/stream')
+@login_required
 def api_stream():
     """Server-Sent Events endpoint for real-time updates."""
     return Response(
@@ -381,12 +484,14 @@ def api_stream():
 
 
 @app.route('/api/version')
+@login_required
 def api_version():
     """Return version information."""
     return jsonify(read_version_info())
 
 
 @app.route('/api/system/info')
+@login_required
 def api_system_info():
     """Return all system information."""
     return jsonify({
@@ -403,42 +508,49 @@ def api_system_info():
 
 
 @app.route('/api/system/disk')
+@login_required
 def api_disk():
     """Return disk usage information."""
     return jsonify(get_disk_usage())
 
 
 @app.route('/api/system/cpu')
+@login_required
 def api_cpu():
     """Return CPU load information."""
     return jsonify(get_cpu_load())
 
 
 @app.route('/api/system/memory')
+@login_required
 def api_memory():
     """Return memory usage information."""
     return jsonify(get_memory_info())
 
 
 @app.route('/api/system/uptime')
+@login_required
 def api_uptime():
     """Return system uptime."""
     return jsonify(get_uptime())
 
 
 @app.route('/api/system/hostname')
+@login_required
 def api_hostname():
     """Return system hostname."""
     return jsonify({'hostname': get_hostname()})
 
 
 @app.route('/api/system/network')
+@login_required
 def api_network():
     """Return network information."""
     return jsonify(get_network_info())
 
 
 @app.route('/api/factory-reset', methods=['POST'])
+@login_required
 def api_factory_reset():
     """Perform factory reset and reboot."""
     errors = perform_factory_reset()
@@ -465,6 +577,7 @@ def api_factory_reset():
 
 
 @app.route('/api/reboot', methods=['POST'])
+@login_required
 def api_reboot():
     """Reboot the system."""
     try:
@@ -477,6 +590,82 @@ def api_reboot():
         return jsonify({
             'status': 'error',
             'message': f'Reboot failed: {e}'
+        }), 500
+
+
+@app.route('/api/change-password', methods=['POST'])
+@login_required
+def api_change_password():
+    """Change the password for the logged-in user."""
+    username = session.get('username')
+    client_ip = request.remote_addr
+
+    # Get form data
+    data = request.get_json() if request.is_json else request.form
+    current_password = data.get('current_password', '')
+    new_password = data.get('new_password', '')
+    confirm_password = data.get('confirm_password', '')
+
+    # Validate inputs
+    if not current_password or not new_password or not confirm_password:
+        return jsonify({
+            'status': 'error',
+            'message': 'All fields are required'
+        }), 400
+
+    if new_password != confirm_password:
+        return jsonify({
+            'status': 'error',
+            'message': 'New passwords do not match'
+        }), 400
+
+    if len(new_password) < 4:
+        return jsonify({
+            'status': 'error',
+            'message': 'Password must be at least 4 characters'
+        }), 400
+
+    # Verify current password
+    if not verify_shadow_password(username, current_password):
+        auth_logger.warning(f"Failed password change attempt for '{username}' from {client_ip} - wrong current password")
+        return jsonify({
+            'status': 'error',
+            'message': 'Current password is incorrect'
+        }), 401
+
+    # Change password using chpasswd
+    try:
+        process = subprocess.run(
+            ['chpasswd'],
+            input=f'{username}:{new_password}\n',
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if process.returncode != 0:
+            auth_logger.error(f"Failed to change password for '{username}': {process.stderr}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to change password'
+            }), 500
+
+        auth_logger.info(f"Password changed successfully for '{username}' from {client_ip}")
+        return jsonify({
+            'status': 'success',
+            'message': 'Password changed successfully'
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'status': 'error',
+            'message': 'Password change timed out'
+        }), 500
+    except Exception as e:
+        auth_logger.error(f"Error changing password for '{username}': {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to change password: {e}'
         }), 500
 
 

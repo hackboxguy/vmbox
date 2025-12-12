@@ -33,6 +33,47 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9em;
+        }
+
+        .user-info .user-icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-logout {
+            padding: 8px 16px;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 6px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: background 0.2s;
+            text-decoration: none;
+        }
+
+        .btn-logout:hover {
+            background: rgba(255,255,255,0.2);
         }
 
         header h1 {
@@ -361,9 +402,16 @@
                 <h1>System Management</h1>
                 <div class="version" id="version-info">Loading...</div>
             </div>
-            <div class="connection-status">
-                <span class="status-dot" id="connection-dot"></span>
-                <span id="connection-text">Connecting...</span>
+            <div class="header-right">
+                <div class="connection-status">
+                    <span class="status-dot" id="connection-dot"></span>
+                    <span id="connection-text">Connecting...</span>
+                </div>
+                <div class="user-info">
+                    <span class="user-icon">&#128100;</span>
+                    <span>{{ username }}</span>
+                </div>
+                <a href="/logout" class="btn-logout">Logout</a>
             </div>
         </header>
 
@@ -465,6 +513,9 @@
             <div class="card">
                 <h2>Actions</h2>
                 <div class="actions">
+                    <button class="btn btn-primary" onclick="showChangePasswordModal()">
+                        Change Password
+                    </button>
                     <button class="btn btn-secondary" onclick="rebootSystem()">
                         Reboot
                     </button>
@@ -496,6 +547,80 @@
             </div>
         </div>
     </div>
+
+    <!-- Change Password Modal -->
+    <div class="modal" id="change-password-modal">
+        <div class="modal-content" style="text-align: left;">
+            <h3 style="color: #667eea; margin-bottom: 20px;">Change Password</h3>
+            <div id="password-error" class="error-message" style="display: none;"></div>
+            <div id="password-success" class="success-message" style="display: none;"></div>
+            <form id="change-password-form" onsubmit="changePassword(event)">
+                <div class="form-group">
+                    <label for="current-password">Current Password</label>
+                    <input type="password" id="current-password" name="current_password" required>
+                </div>
+                <div class="form-group">
+                    <label for="new-password">New Password</label>
+                    <input type="password" id="new-password" name="new_password" required minlength="4">
+                </div>
+                <div class="form-group">
+                    <label for="confirm-password">Confirm New Password</label>
+                    <input type="password" id="confirm-password" name="confirm_password" required minlength="4">
+                </div>
+                <div class="modal-buttons" style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">
+                        Change Password
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="hideChangePasswordModal()">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <style>
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #888;
+            font-size: 0.9em;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            background: #1f3460;
+            border: 1px solid #2a4a8a;
+            border-radius: 6px;
+            color: #eee;
+            font-size: 1em;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .error-message {
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid #ff6b6b;
+            color: #ff6b6b;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+        .success-message {
+            background: rgba(81, 207, 102, 0.1);
+            border: 1px solid #51cf66;
+            color: #51cf66;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+    </style>
 
     <script>
         let eventSource = null;
@@ -722,6 +847,76 @@
                 }
             } catch (error) {
                 alert('Failed to reboot: ' + error.message);
+            }
+        }
+
+        function showChangePasswordModal() {
+            // Reset form and messages
+            document.getElementById('change-password-form').reset();
+            document.getElementById('password-error').style.display = 'none';
+            document.getElementById('password-success').style.display = 'none';
+            document.getElementById('change-password-modal').classList.add('active');
+        }
+
+        function hideChangePasswordModal() {
+            document.getElementById('change-password-modal').classList.remove('active');
+        }
+
+        async function changePassword(event) {
+            event.preventDefault();
+
+            const errorDiv = document.getElementById('password-error');
+            const successDiv = document.getElementById('password-success');
+            errorDiv.style.display = 'none';
+            successDiv.style.display = 'none';
+
+            const currentPassword = document.getElementById('current-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+
+            // Client-side validation
+            if (newPassword !== confirmPassword) {
+                errorDiv.textContent = 'New passwords do not match';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            if (newPassword.length < 4) {
+                errorDiv.textContent = 'Password must be at least 4 characters';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/change-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        current_password: currentPassword,
+                        new_password: newPassword,
+                        confirm_password: confirmPassword
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    successDiv.textContent = 'Password changed successfully!';
+                    successDiv.style.display = 'block';
+                    document.getElementById('change-password-form').reset();
+                    // Close modal after 2 seconds
+                    setTimeout(() => {
+                        hideChangePasswordModal();
+                    }, 2000);
+                } else {
+                    errorDiv.textContent = data.message || 'Failed to change password';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Failed to change password: ' + error.message;
+                errorDiv.style.display = 'block';
             }
         }
 

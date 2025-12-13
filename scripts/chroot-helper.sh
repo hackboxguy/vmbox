@@ -200,6 +200,9 @@ chroot_create_user() {
     # Add to wheel group for sudo
     run_in_chroot "$rootfs" "addgroup $username wheel"
 
+    # Add to dialout group for serial port access
+    run_in_chroot "$rootfs" "addgroup $username dialout 2>/dev/null || true"
+
     info "User $username created"
 }
 

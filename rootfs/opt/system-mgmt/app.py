@@ -788,6 +788,107 @@ def logout():
     return redirect(url_for('login'))
 
 
+# Session validation endpoints for apps (especially WebSocket-enabled apps)
+# These allow apps to validate authentication without going through the proxy
+
+@app.route('/api/session/check')
+def api_session_check():
+    """
+    Check if the current session is valid.
+    Apps can call this to verify user authentication.
+    Returns JSON with valid=true/false and username if valid.
+    """
+    if 'username' not in session:
+        return jsonify({'valid': False})
+
+    # Check session expiry
+    if 'login_time' in session:
+        login_time = datetime.fromisoformat(session['login_time'])
+        if datetime.now() - login_time > timedelta(minutes=30):
+            return jsonify({'valid': False, 'reason': 'expired'})
+
+    return jsonify({
+        'valid': True,
+        'username': session.get('username'),
+        'login_time': session.get('login_time')
+    })
+
+
+@app.route('/api/session/token', methods=['POST'])
+@login_required
+def api_session_token():
+    """
+    Generate a short-lived token for WebSocket authentication.
+    Apps can use this token to authenticate WebSocket connections.
+
+    The token is valid for 60 seconds and tied to the current session.
+    """
+    import secrets
+    import hashlib
+
+    # Generate a token based on session + random data
+    token_data = f"{session.get('username')}:{session.get('login_time')}:{secrets.token_hex(16)}"
+    token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
+
+    # Store token with expiry (in a simple dict - in production use Redis/memcached)
+    if not hasattr(app, '_ws_tokens'):
+        app._ws_tokens = {}
+
+    # Clean expired tokens
+    current_time = time.time()
+    app._ws_tokens = {k: v for k, v in app._ws_tokens.items() if v['expires'] > current_time}
+
+    # Store new token
+    app._ws_tokens[token] = {
+        'username': session.get('username'),
+        'expires': current_time + 60,  # 60 second validity
+        'created': current_time
+    }
+
+    return jsonify({
+        'token': token,
+        'expires_in': 60,
+        'username': session.get('username')
+    })
+
+
+@app.route('/api/session/validate-token', methods=['POST'])
+def api_validate_token():
+    """
+    Validate a WebSocket authentication token.
+    Apps call this to verify tokens received from clients.
+
+    Request body: {"token": "..."}
+    Response: {"valid": true/false, "username": "..." if valid}
+    """
+    data = request.get_json()
+    if not data or 'token' not in data:
+        return jsonify({'valid': False, 'reason': 'missing token'})
+
+    token = data['token']
+
+    if not hasattr(app, '_ws_tokens'):
+        return jsonify({'valid': False, 'reason': 'no tokens'})
+
+    token_info = app._ws_tokens.get(token)
+    if not token_info:
+        return jsonify({'valid': False, 'reason': 'invalid token'})
+
+    if token_info['expires'] < time.time():
+        # Clean up expired token
+        del app._ws_tokens[token]
+        return jsonify({'valid': False, 'reason': 'expired'})
+
+    # Token is valid - consume it (one-time use)
+    username = token_info['username']
+    del app._ws_tokens[token]
+
+    return jsonify({
+        'valid': True,
+        'username': username
+    })
+
+
 @app.route('/')
 @login_required
 def index():

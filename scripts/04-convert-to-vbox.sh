@@ -251,16 +251,30 @@ configure_vm() {
         --nictype1 virtio &>/dev/null
 
     # Add port forwarding rules
-    # Only SSH and System Management are exposed - all apps accessed through proxy
+    # SSH and System Management are always exposed
+    # App ports are forwarded for WebSocket access (token-authenticated)
     VBoxManage modifyvm "$VM_NAME" \
         --natpf1 "ssh,tcp,,${SSH_HOST_PORT},,${SSH_GUEST_PORT}" &>/dev/null
     VBoxManage modifyvm "$VM_NAME" \
         --natpf1 "sysmgmt,tcp,,${SYSMGMT_HOST_PORT},,${SYSMGMT_GUEST_PORT}" &>/dev/null
 
+    # Add app port forwarding rules (for WebSocket-enabled apps)
+    for app_entry in "${APP_PORTS[@]}"; do
+        local app_name="${app_entry%%|*}"
+        local app_port="${app_entry##*|}"
+        VBoxManage modifyvm "$VM_NAME" \
+            --natpf1 "app-${app_name},tcp,,${app_port},,${app_port}" &>/dev/null
+    done
+
     info "Network: NAT with port forwarding"
     info "  SSH:          localhost:${SSH_HOST_PORT} -> VM:${SSH_GUEST_PORT}"
     info "  System Mgmt:  localhost:${SYSMGMT_HOST_PORT} -> VM:${SYSMGMT_GUEST_PORT}"
-    info "  (Apps accessed via System Mgmt proxy at /app/<name>/)"
+    info "  (HTTP access: via proxy at /app/<name>/, WebSocket: direct to app port)"
+    for app_entry in "${APP_PORTS[@]}"; do
+        local app_name="${app_entry%%|*}"
+        local app_port="${app_entry##*|}"
+        info "  App ${app_name}: localhost:${app_port} (WebSocket)"
+    done
 
     # Serial port (for console access) - only on Linux with --serial flag
     # Serial ports with Unix socket paths don't work on Windows/macOS
@@ -350,7 +364,12 @@ show_summary() {
     echo "Access:"
     echo "  SSH:            ssh -p ${SSH_HOST_PORT} ${DEFAULT_USERNAME}@localhost"
     echo "  System Mgmt:    http://localhost:${SYSMGMT_HOST_PORT}/"
-    echo "  (Apps accessed via System Mgmt -> Applications panel)"
+    echo "  (Apps: HTTP via /app/<name>/, WebSocket via direct port)"
+    for app_entry in "${APP_PORTS[@]}"; do
+        local app_name="${app_entry%%|*}"
+        local app_port="${app_entry##*|}"
+        printf "  %-14s  ws://localhost:%s/ (WebSocket)\n" "App ${app_name}:" "${app_port}"
+    done
     if [ "$ENABLE_SERIAL" = "true" ]; then
         echo "  Serial Console: socat - UNIX-CONNECT:/tmp/${VM_NAME}-serial.sock"
     fi

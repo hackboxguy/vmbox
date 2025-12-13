@@ -61,6 +61,7 @@ ALPINE_BASE_PACKAGES=(
     "py3-flask"
     "py3-pyserial"
     "py3-requests"
+    "py3-websockets"
 
     # VirtualBox guest additions
     "virtualbox-guest-additions"

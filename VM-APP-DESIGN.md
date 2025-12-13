@@ -737,6 +737,63 @@ User Browser                    System-Mgmt (port 8000)           App (internal 
 | `/app/<name>/` | Proxied to app's root path |
 | `/app/<name>/<path>` | Proxied to app's `/<path>` |
 
+### WebSocket Authentication
+
+WebSocket connections cannot go through the HTTP proxy. For apps that need WebSocket (like real-time terminals), use token-based authentication:
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  WebSocket Authentication Flow                                            │
+│                                                                          │
+│  1. Client (via proxy)     →  POST /api/session/token                    │
+│                            ←  {"token": "abc123...", "expires_in": 60}   │
+│                                                                          │
+│  2. Client (direct)        →  ws://host:8003/ws?token=abc123...          │
+│     App validates token    →  POST http://localhost:8000/api/session/validate-token  │
+│                            ←  {"valid": true, "username": "admin"}       │
+│                                                                          │
+│  3. WebSocket connected and authenticated                                 │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Session Endpoints for Apps**:
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/session/check` | GET | Check if current session is valid |
+| `/api/session/token` | POST | Get a short-lived token (60s) for WebSocket auth |
+| `/api/session/validate-token` | POST | Validate a WebSocket auth token (one-time use) |
+
+**JavaScript Example** (in app frontend):
+```javascript
+// Before connecting WebSocket, get a token via the authenticated proxy
+async function connectWebSocket() {
+    // 1. Get auth token (via proxy - session cookie sent automatically)
+    const tokenResp = await fetch(getBasePath() + 'api/session/token', { method: 'POST' });
+    const { token } = await tokenResp.json();
+
+    // 2. Connect WebSocket directly to app with token
+    const wsUrl = `ws://${window.location.hostname}:8003/ws?token=${token}`;
+    const ws = new WebSocket(wsUrl);
+    // ...
+}
+```
+
+**Python Example** (in app backend):
+```python
+def validate_ws_token(token):
+    """Validate WebSocket auth token with system-mgmt."""
+    try:
+        resp = requests.post(
+            'http://localhost:8000/api/session/validate-token',
+            json={'token': token},
+            timeout=5
+        )
+        data = resp.json()
+        return data.get('valid', False), data.get('username')
+    except:
+        return False, None
+```
+
 ---
 
 ## UI Design System

@@ -54,31 +54,19 @@ iface eth0 inet dhcp
 
 ## Python HTTP Servers
 
-### Avoid `http.server` Module in Alpine/BusyBox Environments
+### Using `http.server` Module Correctly
 
-**Problem**: Python's built-in `http.server` module has compatibility issues with Alpine Linux and BusyBox networking tools.
+**Problem**: Connections to `http.server` hang or timeout.
 
-**Symptoms**:
-- Connections establish (TCP handshake completes)
-- Server's `recv()` blocks forever
-- No data is ever received by the server
-- BusyBox `nc`, `wget`, and `curl` all exhibit the same behavior
+**Root Cause**: Usually caused by missing loopback interface (see [Network Configuration](#network-configuration)). Once `lo` is properly configured, `http.server` works fine.
 
-**Solution**: Use Flask instead of `http.server`:
+**Important**: The `http.server` module works correctly in Alpine/BusyBox when:
+1. The loopback interface is enabled (via `networking` service)
+2. Proper HTTP headers are set (see fixes below)
 
-```python
-# Instead of:
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-httpd = HTTPServer(('0.0.0.0', 8002), MyHandler)
-httpd.serve_forever()
+**Recommended for**: Lightweight demo apps with zero external dependencies.
 
-# Use Flask:
-from flask import Flask
-app = Flask(__name__)
-app.run(host='0.0.0.0', port=8002, threaded=True)
-```
-
-Flask's Werkzeug server handles socket operations more reliably across different environments.
+**For production apps**: Consider Flask for more features and better error handling.
 
 ### DNS Reverse Lookup Delays in BaseHTTPRequestHandler
 
@@ -290,12 +278,45 @@ ssh -p 2222 admin@localhost
 
 ---
 
+## Serial Console Configuration
+
+### Boot Delays When Serial Console Not Connected
+
+**Problem**: VM services don't start until someone connects to the serial console.
+
+**Root Cause**: When `console=ttyS0` is in the kernel command line (especially as the last/primary console), init and OpenRC write output to the serial port. If nothing is connected to read from it, writes can block, delaying boot.
+
+**Solution**: Remove `console=ttyS0` from the kernel command line:
+
+```bash
+# Instead of (ttyS0 as primary console - BLOCKS):
+APPEND root=/dev/sda2 console=tty0 console=ttyS0,115200n8 quiet
+
+# Use (tty0 only - serial is optional):
+APPEND root=/dev/sda2 console=tty0 quiet
+```
+
+**Additionally**, use `askfirst` for serial getty in `/etc/inittab`:
+
+```bash
+ttyS0::askfirst:/sbin/getty -L 115200 ttyS0 vt100
+```
+
+**Key Points**:
+- The **last** `console=` parameter is the primary console
+- With `console=ttyS0` as primary, init blocks if serial not connected
+- Removing `console=ttyS0` makes serial truly optional
+- Serial login still works via getty when someone connects
+
+---
+
 ## Summary of Key Fixes
 
 | Issue | Root Cause | Solution |
 |-------|------------|----------|
 | localhost hangs inside VM | Missing `lo` interface | Enable `networking` service |
-| http.server hangs | Incompatibility with BusyBox | Use Flask instead |
+| http.server hangs | Missing `lo` interface | Enable `networking` service (http.server works fine with proper network config) |
 | 60s response delay | DNS reverse lookup | Override `address_string()` |
 | Script silent exit | `((var++))` with `set -e` | Use `$((var + 1))` |
 | Remote "Open" button fails | Hardcoded `localhost` | Use `window.location.hostname` |
+| Boot waits for serial console | `console=ttyS0` in kernel cmdline | Remove `console=ttyS0`, use only `console=tty0` |

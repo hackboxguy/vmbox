@@ -179,7 +179,8 @@ tty2::respawn:/sbin/getty 38400 tty2
 tty3::respawn:/sbin/getty 38400 tty3
 
 # Serial console (VirtualBox COM1)
-ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100
+# Use 'askfirst' instead of 'respawn' to avoid blocking boot when serial is not connected
+ttyS0::askfirst:/sbin/getty -L 115200 ttyS0 vt100
 
 # Shutdown handlers
 ::shutdown:/sbin/openrc shutdown

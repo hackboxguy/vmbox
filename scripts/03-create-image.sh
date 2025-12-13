@@ -502,7 +502,7 @@ TIMEOUT 30
 LABEL linux
     LINUX /vmlinuz-virt
     INITRD /initramfs-custom
-    APPEND root=/dev/sda2 rootfstype=ext4 rw console=tty0 console=ttyS0,115200n8 quiet
+    APPEND root=/dev/sda2 rootfstype=ext4 rw console=tty0 quiet
 EOF
     else
         # Production mode: boot with SquashFS + overlay
@@ -513,7 +513,7 @@ EOF
             append_line="${append_line} app=/dev/sda4"
         fi
 
-        append_line="${append_line} console=tty0 console=ttyS0,115200n8 quiet"
+        append_line="${append_line} console=tty0 quiet"
 
         cat > "${boot_mount}/syslinux/syslinux.cfg" <<EOF
 DEFAULT linux

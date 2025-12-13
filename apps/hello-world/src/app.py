@@ -2,9 +2,11 @@
 """
 Hello World Demo Application
 
-A minimal Flask application demonstrating the VirtualBox Alpine VM app framework.
-This serves as a reference implementation for building apps that integrate with
-the VM's app-manager service.
+A minimal application demonstrating the VirtualBox Alpine VM app framework.
+Uses only Python standard library - no external dependencies.
+
+This serves as a reference implementation for building lightweight apps
+that integrate with the VM's app-manager service.
 
 Features:
 - Serves static HTML page following the UI Design System
@@ -19,7 +21,8 @@ import signal
 import sys
 import logging
 from datetime import datetime
-from flask import Flask, jsonify, send_from_directory
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+import urllib.parse
 
 # Configuration defaults
 DEFAULT_PORT = 8002
@@ -41,9 +44,6 @@ config = {
     'greeting': 'Hello, World!',
     'version': APP_VERSION
 }
-
-# Create Flask app
-app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='/static')
 
 
 def setup_logging():
@@ -93,59 +93,95 @@ def load_config(config_path):
         logger.info(f"No config file at {config_path}, using defaults")
 
 
-@app.route('/health')
-def health():
-    """Health check endpoint."""
-    response = {
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'uptime_seconds': (datetime.now() - START_TIME).total_seconds()
-    }
-    return jsonify(response)
+class HelloWorldHandler(SimpleHTTPRequestHandler):
+    """HTTP request handler for the Hello World app."""
 
+    # Use HTTP/1.1 for better compatibility
+    protocol_version = "HTTP/1.1"
 
-@app.route('/api/greeting')
-def greeting():
-    """API endpoint for greeting message."""
-    response = {
-        'greeting': config.get('greeting', 'Hello, World!'),
-        'timestamp': datetime.now().isoformat()
-    }
-    return jsonify(response)
+    def __init__(self, *args, **kwargs):
+        # Set the directory for serving static files
+        super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
+    def end_headers(self):
+        """Add Connection: close header to ensure proper response termination."""
+        self.send_header('Connection', 'close')
+        super().end_headers()
 
-@app.route('/api/info')
-def info():
-    """API endpoint for app information."""
-    uptime = datetime.now() - START_TIME
-    hours, remainder = divmod(int(uptime.total_seconds()), 3600)
-    minutes, seconds = divmod(remainder, 60)
+    def address_string(self):
+        """Return client IP without DNS lookup (prevents timeout delays)."""
+        return self.client_address[0]
 
-    response = {
-        'name': APP_NAME,
-        'version': APP_VERSION,
-        'uptime': f"{hours}h {minutes}m {seconds}s",
-        'uptime_seconds': uptime.total_seconds(),
-        'config': config,
-        'environment': {
-            'data_dir': APP_DATA_DIR,
-            'config_dir': APP_CONFIG_DIR,
-            'log_file': APP_LOG_FILE
+    def log_message(self, format, *args):
+        """Override to use our logger."""
+        logger.info("%s - %s", self.address_string(), format % args)
+
+    def do_GET(self):
+        """Handle GET requests."""
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        if path == '/health':
+            self.handle_health()
+        elif path == '/api/greeting':
+            self.handle_greeting()
+        elif path == '/api/info':
+            self.handle_info()
+        elif path == '/' or path == '/index.html':
+            self.handle_index()
+        else:
+            # Serve static files
+            super().do_GET()
+
+    def handle_health(self):
+        """Health check endpoint."""
+        response = {
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'uptime_seconds': (datetime.now() - START_TIME).total_seconds()
         }
-    }
-    return jsonify(response)
+        self.send_json_response(response)
 
+    def handle_greeting(self):
+        """API endpoint for greeting message."""
+        response = {
+            'greeting': config.get('greeting', 'Hello, World!'),
+            'timestamp': datetime.now().isoformat()
+        }
+        self.send_json_response(response)
 
-@app.route('/')
-@app.route('/index.html')
-def index():
-    """Serve the main index page."""
-    index_path = os.path.join(STATIC_DIR, 'index.html')
-    if os.path.exists(index_path):
-        return send_from_directory(STATIC_DIR, 'index.html')
-    else:
-        # Fallback: generate a simple response
-        html = f"""<!DOCTYPE html>
+    def handle_info(self):
+        """API endpoint for app information."""
+        uptime = datetime.now() - START_TIME
+        hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+
+        response = {
+            'name': APP_NAME,
+            'version': APP_VERSION,
+            'uptime': f"{hours}h {minutes}m {seconds}s",
+            'uptime_seconds': uptime.total_seconds(),
+            'config': config,
+            'environment': {
+                'data_dir': APP_DATA_DIR,
+                'config_dir': APP_CONFIG_DIR,
+                'log_file': APP_LOG_FILE
+            }
+        }
+        self.send_json_response(response)
+
+    def handle_index(self):
+        """Serve the main index page."""
+        index_path = os.path.join(STATIC_DIR, 'index.html')
+        if os.path.exists(index_path):
+            self.path = '/index.html'
+            super().do_GET()
+        else:
+            # Fallback: generate a simple response
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            html = f"""<!DOCTYPE html>
 <html>
 <head><title>Hello World</title></head>
 <body>
@@ -154,13 +190,22 @@ def index():
 <p><a href="/health">Health Check</a></p>
 </body>
 </html>"""
-        return html
+            self.wfile.write(html.encode())
+
+    def send_json_response(self, data, status=200):
+        """Send a JSON response."""
+        response_body = json.dumps(data, indent=2).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', len(response_body))
+        self.send_header('Cache-Control', 'no-cache')
+        self.end_headers()
+        self.wfile.write(response_body)
 
 
-@app.route('/<path:filename>')
-def static_files(filename):
-    """Serve static files."""
-    return send_from_directory(STATIC_DIR, filename)
+class ReusableHTTPServer(HTTPServer):
+    """HTTP Server that allows address reuse."""
+    allow_reuse_address = True
 
 
 def shutdown_handler(signum, frame):
@@ -204,13 +249,21 @@ def main():
             except Exception as e:
                 logger.warning(f"Could not create directory {dir_path}: {e}")
 
-    # Start Flask server
-    logger.info(f"Hello World server starting on http://{args.host}:{args.port}")
-    logger.info(f"Static files: {STATIC_DIR}")
-    logger.info(f"Health check: http://{args.host}:{args.port}/health")
+    # Start HTTP server
+    server_address = (args.host, args.port)
 
-    # Use threaded mode for better connection handling
-    app.run(host=args.host, port=args.port, debug=False, threaded=True)
+    try:
+        httpd = ReusableHTTPServer(server_address, HelloWorldHandler)
+        logger.info(f"Hello World server starting on http://{args.host}:{args.port}")
+        logger.info(f"Static files: {STATIC_DIR}")
+        logger.info(f"Health check: http://{args.host}:{args.port}/health")
+        httpd.serve_forever()
+    except OSError as e:
+        logger.error(f"Failed to start server: {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user")
+        sys.exit(0)
 
 
 if __name__ == '__main__':

@@ -699,8 +699,43 @@ The system-mgmt WebUI displays an "Applications" panel:
 ### Opening App UI
 
 For apps with `type: "webapp"`, the dashboard shows an "Open" button that:
-1. Opens `http://localhost:<port>/` in a new browser tab
-2. Uses the host's port forwarding (e.g., localhost:8001)
+1. Opens `/app/<name>/` in a new browser tab (through reverse proxy)
+2. Authentication is enforced - user must be logged into system-mgmt
+3. All requests are proxied through system-mgmt to `localhost:<port>/`
+
+### Authenticated App Proxy
+
+All webapp access goes through the system-mgmt reverse proxy:
+
+```
+User Browser                    System-Mgmt (port 8000)           App (internal port)
+     │                                    │                              │
+     │  GET /app/hello-world/             │                              │
+     ├───────────────────────────────────>│                              │
+     │                                    │  Check session cookie        │
+     │                                    │  (redirect to login if       │
+     │                                    │   not authenticated)         │
+     │                                    │                              │
+     │                                    │  GET http://127.0.0.1:8002/  │
+     │                                    ├─────────────────────────────>│
+     │                                    │                              │
+     │                                    │  <html>...</html>            │
+     │                                    │<─────────────────────────────┤
+     │  <html>...</html>                  │                              │
+     │<───────────────────────────────────┤                              │
+```
+
+**Benefits**:
+- Single entry point (port 8000 only)
+- Centralized authentication
+- Apps don't need their own auth code
+- Simpler firewall/port forwarding rules
+
+**Proxy Endpoints**:
+| Route | Description |
+|-------|-------------|
+| `/app/<name>/` | Proxied to app's root path |
+| `/app/<name>/<path>` | Proxied to app's `/<path>` |
 
 ---
 
@@ -1350,6 +1385,39 @@ LOG_FILE = os.environ.get('APP_LOG_FILE', '/var/log/app/my-webapp.log')
 CONFIG_DIR = os.environ.get('APP_CONFIG_DIR', '/data/app-config/my-webapp')
 ```
 
+### Step 8: Use Proxy-Compatible API Paths (Web Apps)
+
+When your app is accessed through the system-mgmt proxy at `/app/<name>/`, API calls must use relative paths. **Important**: Do NOT use absolute paths like `/api/data` as they will be routed to system-mgmt instead of your app.
+
+**JavaScript - Use a base path helper:**
+```javascript
+// Get base path for API calls (works with both direct and proxied access)
+function getBasePath() {
+    const path = window.location.pathname;
+    // Ensure trailing slash for relative URL resolution
+    return path.endsWith('/') ? path : path + '/';
+}
+
+// Use in fetch calls
+async function fetchData() {
+    const response = await fetch(getBasePath() + 'api/data');
+    // When accessed at /app/myapp/, this fetches /app/myapp/api/data
+    // When accessed directly at /, this fetches /api/data
+    return response.json();
+}
+```
+
+**Example API calls:**
+```javascript
+// ✓ CORRECT - relative paths
+fetch(getBasePath() + 'api/users')
+fetch(getBasePath() + 'health')
+
+// ✗ WRONG - absolute paths (will go to system-mgmt, not your app)
+fetch('/api/users')
+fetch('/health')
+```
+
 ---
 
 ## CMake Integration
@@ -1436,27 +1504,32 @@ After reboot:
 
 ## Port Forwarding (VirtualBox)
 
-### Automatic Configuration
+### Minimal Port Exposure
 
-The `04-convert-to-vbox.sh` script reads app manifests and auto-configures port forwarding:
+The `04-convert-to-vbox.sh` script configures only essential port forwarding. All webapp access goes through the authenticated system-mgmt proxy:
 
 ```bash
-# Default ports (always configured)
+# Only SSH and System Management are exposed
 VBoxManage modifyvm "$VM_NAME" --natpf1 "ssh,tcp,,2222,,22"
 VBoxManage modifyvm "$VM_NAME" --natpf1 "sysmgmt,tcp,,8000,,8000"
 
-# App ports (from manifest)
-VBoxManage modifyvm "$VM_NAME" --natpf1 "webapp1,tcp,,8001,,8001"
-VBoxManage modifyvm "$VM_NAME" --natpf1 "database,tcp,,5432,,5432"
+# App ports are NOT forwarded - accessed via /app/<name>/ proxy
 ```
 
 ### Port Mapping
 
-| Service | Guest Port | Host Port |
-|---------|------------|-----------|
-| SSH | 22 | 2222 |
-| System Mgmt | 8000 | 8000 |
-| (from apps) | as configured | same as guest |
+| Service | Guest Port | Host Port | Access Method |
+|---------|------------|-----------|---------------|
+| SSH | 22 | 2222 | Direct: `ssh -p 2222 admin@localhost` |
+| System Mgmt | 8000 | 8000 | Direct: `http://localhost:8000/` |
+| Apps | internal | none | Via proxy: `http://localhost:8000/app/<name>/` |
+
+### Security Benefits
+
+- **Single entry point**: Only port 8000 needs to be exposed for all web access
+- **Centralized authentication**: All app access requires system-mgmt login
+- **Reduced attack surface**: Individual app ports not exposed externally
+- **Simplified firewall**: Only 2 ports to manage (SSH + WebUI)
 
 ---
 
@@ -1469,7 +1542,9 @@ VBoxManage modifyvm "$VM_NAME" --natpf1 "database,tcp,,5432,,5432"
 5. **Health Monitoring**: 10-second checks, multiple types supported
 6. **Graceful Lifecycle**: Ordered startup, SIGTERM → timeout → SIGKILL shutdown
 7. **WebUI Integration**: Apps panel with status, controls, and "Open" links
-8. **Factory Reset**: Complete wipe of all user and app data
+8. **Authenticated Proxy**: All webapp access through `/app/<name>/` with session auth
+9. **Minimal Exposure**: Only SSH (22) and System Mgmt (8000) ports forwarded
+10. **Factory Reset**: Complete wipe of all user and app data
 
 ---
 
@@ -1479,3 +1554,4 @@ VBoxManage modifyvm "$VM_NAME" --natpf1 "database,tcp,,5432,,5432"
 |---------|------|---------|
 | 1.0.0 | 2025-01-15 | Initial design document |
 | 1.1.0 | 2025-12-13 | Added UI Design System section with design tokens, color palette, component styles, and app template |
+| 1.2.0 | 2025-12-13 | Added authenticated reverse proxy for webapp access; apps accessed via `/app/<name>/` instead of direct ports; updated port forwarding to only expose SSH and System Mgmt; added proxy-compatible API path guidelines |

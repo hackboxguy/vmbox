@@ -333,9 +333,16 @@
     </div>
 
     <script>
+        // Get base path for API calls (works with both direct and proxied access)
+        function getBasePath() {
+            const path = window.location.pathname;
+            // Ensure trailing slash for relative URL resolution
+            return path.endsWith('/') ? path : path + '/';
+        }
+
         async function fetchGreeting() {
             try {
-                const response = await fetch('/api/greeting');
+                const response = await fetch(getBasePath() + 'api/greeting');
                 const data = await response.json();
                 document.getElementById('greeting').textContent = data.greeting;
                 document.getElementById('timestamp').textContent =
@@ -351,7 +358,7 @@
             const statusText = document.getElementById('status-text');
 
             try {
-                const response = await fetch('/health');
+                const response = await fetch(getBasePath() + 'health');
                 const data = await response.json();
 
                 if (data.status === 'healthy') {
@@ -369,7 +376,7 @@
 
         async function fetchInfo() {
             try {
-                const response = await fetch('/api/info');
+                const response = await fetch(getBasePath() + 'api/info');
                 const data = await response.json();
 
                 document.getElementById('version').textContent = data.version;

@@ -251,30 +251,16 @@ configure_vm() {
         --nictype1 virtio &>/dev/null
 
     # Add port forwarding rules
+    # Only SSH and System Management are exposed - all apps accessed through proxy
     VBoxManage modifyvm "$VM_NAME" \
         --natpf1 "ssh,tcp,,${SSH_HOST_PORT},,${SSH_GUEST_PORT}" &>/dev/null
     VBoxManage modifyvm "$VM_NAME" \
         --natpf1 "sysmgmt,tcp,,${SYSMGMT_HOST_PORT},,${SYSMGMT_GUEST_PORT}" &>/dev/null
-    VBoxManage modifyvm "$VM_NAME" \
-        --natpf1 "business,tcp,,${BUSINESS_HOST_PORT},,${BUSINESS_GUEST_PORT}" &>/dev/null
-
-    # Add app port forwarding rules
-    for app_entry in "${APP_PORTS[@]}"; do
-        local app_name="${app_entry%%|*}"
-        local app_port="${app_entry##*|}"
-        VBoxManage modifyvm "$VM_NAME" \
-            --natpf1 "app-${app_name},tcp,,${app_port},,${app_port}" &>/dev/null
-    done
 
     info "Network: NAT with port forwarding"
     info "  SSH:          localhost:${SSH_HOST_PORT} -> VM:${SSH_GUEST_PORT}"
     info "  System Mgmt:  localhost:${SYSMGMT_HOST_PORT} -> VM:${SYSMGMT_GUEST_PORT}"
-    info "  Business App: localhost:${BUSINESS_HOST_PORT} -> VM:${BUSINESS_GUEST_PORT}"
-    for app_entry in "${APP_PORTS[@]}"; do
-        local app_name="${app_entry%%|*}"
-        local app_port="${app_entry##*|}"
-        info "  App ${app_name}: localhost:${app_port} -> VM:${app_port}"
-    done
+    info "  (Apps accessed via System Mgmt proxy at /app/<name>/)"
 
     # Serial port (for console access) - only on Linux with --serial flag
     # Serial ports with Unix socket paths don't work on Windows/macOS
@@ -364,12 +350,7 @@ show_summary() {
     echo "Access:"
     echo "  SSH:            ssh -p ${SSH_HOST_PORT} ${DEFAULT_USERNAME}@localhost"
     echo "  System Mgmt:    http://localhost:${SYSMGMT_HOST_PORT}/"
-    echo "  Business App:   http://localhost:${BUSINESS_HOST_PORT}/"
-    for app_entry in "${APP_PORTS[@]}"; do
-        local app_name="${app_entry%%|*}"
-        local app_port="${app_entry##*|}"
-        printf "  %-14s  http://localhost:%s/\n" "App ${app_name}:" "${app_port}"
-    done
+    echo "  (Apps accessed via System Mgmt -> Applications panel)"
     if [ "$ENABLE_SERIAL" = "true" ]; then
         echo "  Serial Console: socat - UNIX-CONNECT:/tmp/${VM_NAME}-serial.sock"
     fi

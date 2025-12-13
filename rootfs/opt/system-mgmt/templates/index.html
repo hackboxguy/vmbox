@@ -1321,8 +1321,8 @@
 
                     let actionsHtml = '';
                     if (app.status === 'running') {
-                        if (app.type === 'webapp' && app.port) {
-                            actionsHtml += `<a href="http://${window.location.hostname}:${app.port}/" target="_blank" class="btn btn-primary">Open</a>`;
+                        if (app.type === 'webapp') {
+                            actionsHtml += `<a href="/app/${app.name}/" target="_blank" class="btn btn-primary">Open</a>`;
                         }
                         actionsHtml += `<button class="btn btn-secondary" onclick="restartApp('${app.name}')">Restart</button>`;
                         actionsHtml += `<button class="btn btn-secondary" onclick="stopApp('${app.name}')">Stop</button>`;

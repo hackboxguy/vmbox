@@ -9,6 +9,8 @@ Features:
     - Shadow-based authentication (same credentials as SSH/terminal)
     - Real-time system stats via Server-Sent Events (SSE)
     - Dashboard with live CPU, memory, disk, and network monitoring
+    - Application management and monitoring
+    - Reverse proxy for authenticated app access
     - Factory reset and reboot capabilities
 
 Endpoints:
@@ -27,6 +29,7 @@ Endpoints:
     GET  /api/system/network    - Network information
     POST /api/factory-reset     - Reset to factory defaults
     POST /api/reboot            - Reboot the system
+    GET  /app/<name>/*          - Reverse proxy to applications (requires login)
 """
 
 import os
@@ -37,6 +40,8 @@ import time
 import crypt
 import hmac
 import logging
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, jsonify, render_template, request, Response, session, redirect, url_for
@@ -85,6 +90,13 @@ LOG_SOURCES = {
 # App Manager socket
 APP_MANAGER_SOCKET = '/run/app/app-manager.sock'
 APP_LOG_DIR = '/var/log/app'
+APP_MANIFEST_FILE = '/app/manifest.json'
+
+# App proxy configuration
+# Cache for app ports: {app_name: port}
+_app_port_cache = {}
+_app_port_cache_time = 0
+APP_PORT_CACHE_TTL = 60  # Cache TTL in seconds
 
 # CPU stats tracking for percentage calculation
 _prev_cpu_stats = None
@@ -142,6 +154,121 @@ def app_manager_request(method, path, timeout=5):
         return {'error': 'Invalid JSON from app manager', 'apps': []}
     except Exception as e:
         return {'error': str(e), 'apps': []}
+
+
+def get_app_ports():
+    """
+    Get mapping of app names to ports.
+    Uses cache with TTL to avoid frequent manifest reads.
+
+    Returns:
+        dict: {app_name: port} mapping
+    """
+    global _app_port_cache, _app_port_cache_time
+
+    current_time = time.time()
+
+    # Return cached data if still valid
+    if _app_port_cache and (current_time - _app_port_cache_time) < APP_PORT_CACHE_TTL:
+        return _app_port_cache
+
+    # Try to load from manifest file first (faster)
+    if os.path.exists(APP_MANIFEST_FILE):
+        try:
+            with open(APP_MANIFEST_FILE, 'r') as f:
+                manifest = json.load(f)
+                apps = manifest.get('apps', [])
+                _app_port_cache = {app['name']: app['port'] for app in apps}
+                _app_port_cache_time = current_time
+                return _app_port_cache
+        except Exception:
+            pass
+
+    # Fallback to app-manager API
+    result = app_manager_request('GET', '/apps')
+    if 'apps' in result:
+        _app_port_cache = {app['name']: app.get('port', 0) for app in result['apps']}
+        _app_port_cache_time = current_time
+        return _app_port_cache
+
+    return {}
+
+
+def proxy_request_to_app(app_name, path):
+    """
+    Proxy an HTTP request to a backend application.
+
+    Args:
+        app_name: Name of the application
+        path: Path to forward (including query string)
+
+    Returns:
+        Flask Response object
+    """
+    app_ports = get_app_ports()
+
+    if app_name not in app_ports:
+        return Response(
+            json.dumps({'error': f'Application not found: {app_name}'}),
+            status=404,
+            mimetype='application/json'
+        )
+
+    port = app_ports[app_name]
+    if not port:
+        return Response(
+            json.dumps({'error': f'No port configured for: {app_name}'}),
+            status=500,
+            mimetype='application/json'
+        )
+
+    # Build target URL
+    target_url = f'http://127.0.0.1:{port}{path}'
+
+    try:
+        # Create request with same method and headers
+        req = urllib.request.Request(
+            target_url,
+            data=request.get_data() if request.method in ['POST', 'PUT', 'PATCH'] else None,
+            method=request.method
+        )
+
+        # Forward relevant headers
+        for header in ['Content-Type', 'Accept', 'Accept-Language', 'Accept-Encoding']:
+            if header in request.headers:
+                req.add_header(header, request.headers[header])
+
+        # Make request to backend
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content = resp.read()
+            response_headers = dict(resp.headers)
+
+            # Create Flask response
+            flask_resp = Response(content, status=resp.status)
+
+            # Copy headers (except hop-by-hop headers)
+            skip_headers = {'transfer-encoding', 'connection', 'keep-alive'}
+            for key, value in response_headers.items():
+                if key.lower() not in skip_headers:
+                    flask_resp.headers[key] = value
+
+            return flask_resp
+
+    except urllib.error.HTTPError as e:
+        content = e.read() if e.fp else b''
+        return Response(content, status=e.code, mimetype='text/html')
+    except urllib.error.URLError as e:
+        return Response(
+            json.dumps({'error': f'Cannot connect to {app_name}: {str(e.reason)}'}),
+            status=502,
+            mimetype='application/json'
+        )
+    except Exception as e:
+        return Response(
+            json.dumps({'error': f'Proxy error: {str(e)}'}),
+            status=500,
+            mimetype='application/json'
+        )
 
 
 def verify_shadow_password(username, password):
@@ -979,6 +1106,40 @@ def api_app_logs(app_name):
         return jsonify({'error': 'Permission denied', 'lines': [], 'total': 0})
     except Exception as e:
         return jsonify({'error': str(e), 'lines': [], 'total': 0})
+
+
+# App Proxy Routes - Authenticate and forward requests to backend apps
+
+@app.route('/app/<app_name>/', defaults={'path': ''})
+@app.route('/app/<app_name>/<path:path>')
+@login_required
+def app_proxy(app_name, path):
+    """
+    Reverse proxy for application access.
+    All requests to /app/<name>/* are authenticated and forwarded to the backend app.
+    """
+    # Reconstruct the path with leading slash
+    forward_path = '/' + path if path else '/'
+
+    # Add query string if present
+    if request.query_string:
+        forward_path += '?' + request.query_string.decode('utf-8')
+
+    return proxy_request_to_app(app_name, forward_path)
+
+
+@app.route('/app/<app_name>/<path:path>', methods=['POST', 'PUT', 'DELETE', 'PATCH'])
+@login_required
+def app_proxy_write(app_name, path):
+    """
+    Reverse proxy for write operations (POST, PUT, DELETE, PATCH).
+    """
+    forward_path = '/' + path if path else '/'
+
+    if request.query_string:
+        forward_path += '?' + request.query_string.decode('utf-8')
+
+    return proxy_request_to_app(app_name, forward_path)
 
 
 if __name__ == '__main__':

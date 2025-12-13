@@ -24,6 +24,7 @@ OUTPUT_DIR=""
 VERSION=""
 OS_PART_SIZE="${DEFAULT_OS_PART_SIZE}"
 DATA_PART_SIZE="${DEFAULT_DATA_PART_SIZE}"
+APP_PART_SIZE="${DEFAULT_APP_PART_SIZE}"
 HOSTNAME="${DEFAULT_HOSTNAME}"
 PACKAGES_FILE=""
 DEV_MODE=false
@@ -44,6 +45,7 @@ Required Arguments:
 Optional Arguments:
   --ospart=SIZE         Root partition size (default: ${DEFAULT_OS_PART_SIZE})
   --datapart=SIZE       Data partition size (default: ${DEFAULT_DATA_PART_SIZE})
+  --apppart=SIZE        App partition size (default: ${DEFAULT_APP_PART_SIZE}, 0=disabled)
   --hostname=NAME       VM hostname (default: ${DEFAULT_HOSTNAME})
   --packages=FILE       Package list file (default: packages.txt in project root)
   --dev-mode            Create writable rootfs (no squashfs, for development)
@@ -101,6 +103,7 @@ parse_arguments() {
             --version=*)    VERSION="${arg#*=}" ;;
             --ospart=*)     OS_PART_SIZE="${arg#*=}" ;;
             --datapart=*)   DATA_PART_SIZE="${arg#*=}" ;;
+            --apppart=*)    APP_PART_SIZE="${arg#*=}" ;;
             --hostname=*)   HOSTNAME="${arg#*=}" ;;
             --packages=*)   PACKAGES_FILE="${arg#*=}" ;;
             --dev-mode)     DEV_MODE=true ;;
@@ -151,9 +154,10 @@ parse_arguments() {
     # Parse partition sizes to MB
     OS_PART_SIZE_MB=$(parse_size_mb "$OS_PART_SIZE")
     DATA_PART_SIZE_MB=$(parse_size_mb "$DATA_PART_SIZE")
+    APP_PART_SIZE_MB=$(parse_size_mb "$APP_PART_SIZE")
 
     # Export for sub-scripts
-    export MODE OUTPUT_DIR VERSION OS_PART_SIZE_MB DATA_PART_SIZE_MB
+    export MODE OUTPUT_DIR VERSION OS_PART_SIZE_MB DATA_PART_SIZE_MB APP_PART_SIZE_MB
     export HOSTNAME PACKAGES_FILE DEV_MODE DEBUG_MODE
     export SCRIPT_DIR
 }
@@ -196,6 +200,7 @@ show_configuration() {
         "Hostname" "$HOSTNAME" \
         "OS partition" "${OS_PART_SIZE} (${OS_PART_SIZE_MB}MB)" \
         "Data partition" "${DATA_PART_SIZE} (${DATA_PART_SIZE_MB}MB)" \
+        "App partition" "${APP_PART_SIZE} (${APP_PART_SIZE_MB}MB)" \
         "Dev mode" "$DEV_MODE" \
         "Debug mode" "$DEBUG_MODE"
 
@@ -274,7 +279,12 @@ main() {
     echo "    --rootfs=${OUTPUT_DIR}/rootfs \\"
     echo "    --output=${OUTPUT_DIR} \\"
     echo "    --ospart=${OS_PART_SIZE} \\"
-    echo "    --datapart=${DATA_PART_SIZE}"
+    if [ "$APP_PART_SIZE_MB" -gt 0 ]; then
+        echo "    --datapart=${DATA_PART_SIZE} \\"
+        echo "    --apppart=${APP_PART_SIZE}"
+    else
+        echo "    --datapart=${DATA_PART_SIZE}"
+    fi
     echo ""
     echo "To convert to VirtualBox VM:"
     echo "  ${SCRIPT_DIR}/scripts/04-convert-to-vbox.sh \\"

@@ -10,11 +10,13 @@
 #   /dev/sda1 - Boot partition (FAT32, contains kernel/initramfs)
 #   /dev/sda2 - Root partition (SquashFS, read-only)
 #   /dev/sda3 - Data partition (ext4, read-write)
+#   /dev/sda4 - App partition (SquashFS, read-only, optional)
 #
 # The overlay merges /mnt/rootfs (squashfs) with /mnt/data/overlay/upper
 # Additional bind mounts:
 #   /mnt/data/var  -> /newroot/var
 #   /mnt/data/home -> /newroot/home
+#   /mnt/app       -> /newroot/app (if app partition exists)
 
 # Don't use set -e - handle errors explicitly
 # set -e
@@ -25,6 +27,7 @@ export PATH=/bin:/sbin
 # Mount point definitions
 MNT_ROOTFS="/mnt/rootfs"
 MNT_DATA="/mnt/data"
+MNT_APP="/mnt/app"
 MNT_OVERLAY="/mnt/overlay"
 NEWROOT="/newroot"
 
@@ -35,6 +38,7 @@ OVERLAY_WORK="${MNT_DATA}/overlay/work"
 # Device names (adjust if needed)
 DEV_ROOTFS="/dev/sda2"
 DEV_DATA="/dev/sda3"
+DEV_APP=""  # Optional: set via kernel cmdline app=/dev/sda4
 
 # Debug flag (set via kernel command line: debug_init=1)
 DEBUG_INIT=0
@@ -66,12 +70,15 @@ parse_cmdline() {
             data=*)
                 DEV_DATA="${opt#data=}"
                 ;;
+            app=*)
+                DEV_APP="${opt#app=}"
+                ;;
             debug_init=*)
                 DEBUG_INIT="${opt#debug_init=}"
                 ;;
         esac
     done
-    debug "rootfs=$DEV_ROOTFS data=$DEV_DATA"
+    debug "rootfs=$DEV_ROOTFS data=$DEV_DATA app=$DEV_APP"
 }
 
 # Wait for a device to appear and be ready
@@ -306,6 +313,46 @@ mount_data() {
     debug "Overlay directories ready"
 }
 
+# Mount the app partition (SquashFS, read-only, optional)
+mount_app() {
+    # APP partition is optional - skip if not configured
+    [ -z "$DEV_APP" ] && return 0
+
+    msg "Mounting APP partition..."
+
+    # Wait for device but don't panic if missing (optional partition)
+    local count=0
+    local timeout=10
+    while [ ! -e "$DEV_APP" ] && [ $count -lt $timeout ]; do
+        sleep 1
+        count=$((count + 1))
+        debug "Waiting for APP device... ($count/$timeout)"
+    done
+
+    if [ ! -e "$DEV_APP" ]; then
+        msg "Warning: APP partition not found: $DEV_APP (skipping)"
+        DEV_APP=""
+        return 0
+    fi
+
+    # Verify device is ready
+    if ! dd if="$DEV_APP" of=/dev/null bs=512 count=1 2>/dev/null; then
+        msg "Warning: APP partition not ready: $DEV_APP (skipping)"
+        DEV_APP=""
+        return 0
+    fi
+
+    mkdir -p "$MNT_APP"
+    if ! mount -t squashfs -o ro "$DEV_APP" "$MNT_APP"; then
+        msg "Warning: Failed to mount APP partition: $DEV_APP (skipping)"
+        DEV_APP=""
+        return 0
+    fi
+
+    msg "APP partition mounted at $MNT_APP"
+    debug "APP partition ready"
+}
+
 # Create the overlay mount
 create_overlay() {
     msg "Creating OverlayFS..."
@@ -338,6 +385,13 @@ setup_bind_mounts() {
 
     # Create shared folder mount point
     mkdir -p "${MNT_OVERLAY}/mnt/shared"
+
+    # Bind mount APP partition if available
+    if [ -n "$DEV_APP" ] && mountpoint -q "$MNT_APP" 2>/dev/null; then
+        mkdir -p "${MNT_OVERLAY}/app"
+        mount --bind "$MNT_APP" "${MNT_OVERLAY}/app"
+        debug "APP partition bound to /app"
+    fi
 
     debug "Bind mounts configured"
 }
@@ -404,6 +458,9 @@ main() {
 
     # Mount data partition
     mount_data
+
+    # Mount APP partition (optional)
+    mount_app
 
     # Create overlay
     create_overlay

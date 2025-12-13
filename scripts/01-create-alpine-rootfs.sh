@@ -292,6 +292,19 @@ install_webapps() {
     else
         warn "Business app source not found: $bizapp_src"
     fi
+
+    # Copy app-manager service
+    local appmgr_src="${PROJECT_ROOT}/rootfs/opt/app-manager"
+    local appmgr_dst="${ROOTFS_DIR}/opt/app-manager"
+
+    if [ -d "$appmgr_src" ]; then
+        mkdir -p "$appmgr_dst"
+        cp -r "${appmgr_src}/." "$appmgr_dst/"
+        chmod +x "${appmgr_dst}/app-manager.py" 2>/dev/null || true
+        info "App manager service installed"
+    else
+        warn "App manager source not found: $appmgr_src"
+    fi
 }
 
 install_services() {

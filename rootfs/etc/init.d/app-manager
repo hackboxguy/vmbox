@@ -1,0 +1,80 @@
+#!/sbin/openrc-run
+
+name="app-manager"
+description="Application Manager Service"
+command="/usr/bin/python3"
+command_args="/opt/app-manager/app-manager.py --manifest /app/manifest.json"
+command_background=true
+pidfile="/run/app/app-manager.pid"
+output_log="/var/log/app/app-manager.log"
+error_log="/var/log/app/app-manager.log"
+
+depend() {
+    need net localmount
+    after system-mgmt firewall
+    before shutdown
+}
+
+start_pre() {
+    # Create required directories
+    mkdir -p /run/app
+    mkdir -p /var/log/app
+    mkdir -p /data/app-data
+    mkdir -p /data/app-config
+
+    # Check if APP partition is mounted
+    if [ ! -d /app ] || [ ! -f /app/manifest.json ]; then
+        ewarn "APP partition not mounted or manifest not found"
+        ewarn "App manager will start but may have no apps to manage"
+    fi
+
+    return 0
+}
+
+start() {
+    ebegin "Starting ${name}"
+
+    # Check for Python
+    if ! command -v python3 >/dev/null 2>&1; then
+        eerror "Python 3 not found"
+        eend 1
+        return 1
+    fi
+
+    start-stop-daemon --start \
+        --background \
+        --make-pidfile \
+        --pidfile "${pidfile}" \
+        --stdout "${output_log}" \
+        --stderr "${error_log}" \
+        --exec ${command} -- ${command_args}
+
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping ${name}"
+
+    # Send SIGTERM to allow graceful shutdown
+    start-stop-daemon --stop \
+        --pidfile "${pidfile}" \
+        --signal TERM \
+        --retry "TERM/30/KILL/5"
+
+    eend $?
+}
+
+status() {
+    if [ -f "${pidfile}" ]; then
+        if kill -0 "$(cat "${pidfile}")" 2>/dev/null; then
+            einfo "${name} is running (PID: $(cat "${pidfile}"))"
+            return 0
+        else
+            ewarn "${name} has a stale pidfile"
+            return 1
+        fi
+    else
+        einfo "${name} is not running"
+        return 3
+    fi
+}

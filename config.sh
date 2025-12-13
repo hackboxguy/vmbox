@@ -14,6 +14,7 @@ ALPINE_MINIROOTFS_URL="${ALPINE_MIRROR}/v${ALPINE_VERSION}/releases/${ALPINE_ARC
 DEFAULT_BOOT_SIZE="64M"
 DEFAULT_OS_PART_SIZE="500M"
 DEFAULT_DATA_PART_SIZE="1024M"
+DEFAULT_APP_PART_SIZE="0"  # 0 = no APP partition (optional)
 
 # Default hostname
 DEFAULT_HOSTNAME="alpine-vm"
@@ -96,18 +97,22 @@ DATA_PARTITION_DIRS=(
     "var"
     "home/${DEFAULT_USERNAME}"
     "shared"
+    "app-data"
+    "app-config"
 )
 
 # Services to enable by default
 ENABLED_SERVICES=(
     "devfs"
     "hostname"
+    "networking"
     "sshd"
     "dhcpcd"
     "local"
     "virtualbox-guest-additions"
     "system-mgmt"
     "business-app"
+    "app-manager"
 )
 
 # Syslinux configuration template

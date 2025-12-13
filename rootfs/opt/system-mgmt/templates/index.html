@@ -314,6 +314,78 @@
         .traffic-stat.rx { color: #51cf66; }
         .traffic-stat.tx { color: #ffa94d; }
 
+        /* Application List Styles */
+        .app-item {
+            background: #1f3460;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .app-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .app-name {
+            font-weight: 600;
+            color: #667eea;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .app-status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #888;
+        }
+
+        .app-status-dot.running { background: #51cf66; }
+        .app-status-dot.stopped { background: #888; }
+        .app-status-dot.unhealthy { background: #ffa94d; }
+        .app-status-dot.failed { background: #ff6b6b; }
+
+        .app-version {
+            font-size: 0.8em;
+            color: #888;
+        }
+
+        .app-details {
+            font-size: 0.9em;
+            color: #888;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .app-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .app-actions .btn {
+            flex: 0;
+            min-width: auto;
+            padding: 6px 12px;
+            font-size: 0.8em;
+        }
+
+        .app-empty {
+            color: #555;
+            text-align: center;
+            padding: 20px;
+        }
+
         .modal {
             display: none;
             position: fixed;
@@ -503,6 +575,16 @@
             <div class="card">
                 <h2>Network</h2>
                 <div id="network-info">
+                    <div class="stat-row">
+                        <span class="stat-label">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Applications Card -->
+            <div class="card">
+                <h2>Applications</h2>
+                <div id="apps-info">
                     <div class="stat-row">
                         <span class="stat-label">Loading...</span>
                     </div>
@@ -1212,10 +1294,121 @@
             return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
 
+        // ===== Applications Functions =====
+        let appsRefreshInterval = null;
+
+        async function loadApps() {
+            const container = document.getElementById('apps-info');
+
+            try {
+                const response = await fetch('/api/apps');
+                const data = await response.json();
+
+                if (data.error) {
+                    container.innerHTML = `<div class="app-empty">${escapeHtml(data.error)}</div>`;
+                    return;
+                }
+
+                if (!data.apps || data.apps.length === 0) {
+                    container.innerHTML = '<div class="app-empty">No applications installed</div>';
+                    return;
+                }
+
+                const html = data.apps.map(app => {
+                    const statusClass = app.status || 'stopped';
+                    const healthStatus = app.health?.status || 'unknown';
+                    const healthTime = app.health?.response_time_ms ? `${app.health.response_time_ms}ms` : '';
+
+                    let actionsHtml = '';
+                    if (app.status === 'running') {
+                        if (app.type === 'webapp' && app.port) {
+                            actionsHtml += `<a href="http://${window.location.hostname}:${app.port}/" target="_blank" class="btn btn-primary">Open</a>`;
+                        }
+                        actionsHtml += `<button class="btn btn-secondary" onclick="restartApp('${app.name}')">Restart</button>`;
+                        actionsHtml += `<button class="btn btn-secondary" onclick="stopApp('${app.name}')">Stop</button>`;
+                    } else {
+                        actionsHtml += `<button class="btn btn-primary" onclick="startApp('${app.name}')">Start</button>`;
+                    }
+
+                    return `
+                        <div class="app-item">
+                            <div class="app-header">
+                                <span class="app-name">
+                                    <span class="app-status-dot ${statusClass}"></span>
+                                    ${escapeHtml(app.name)}
+                                </span>
+                                <span class="app-version">v${escapeHtml(app.version || '?')}</span>
+                            </div>
+                            <div class="app-details">
+                                <span>Status: ${app.status || 'unknown'}</span>
+                                ${app.port ? `<span>Port: ${app.port}</span>` : ''}
+                                ${app.uptime_human ? `<span>Uptime: ${app.uptime_human}</span>` : ''}
+                                ${healthStatus !== 'unknown' ? `<span>Health: ${healthStatus} ${healthTime}</span>` : ''}
+                            </div>
+                            <div class="app-actions">
+                                ${actionsHtml}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Failed to load apps:', error);
+                container.innerHTML = `<div class="app-empty">Error loading apps</div>`;
+            }
+        }
+
+        async function startApp(appName) {
+            try {
+                const response = await fetch(`/api/apps/${appName}/start`, { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    loadApps();
+                } else {
+                    alert(`Failed to start ${appName}: ${data.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                alert(`Failed to start ${appName}: ${error.message}`);
+            }
+        }
+
+        async function stopApp(appName) {
+            try {
+                const response = await fetch(`/api/apps/${appName}/stop`, { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    loadApps();
+                } else {
+                    alert(`Failed to stop ${appName}: ${data.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                alert(`Failed to stop ${appName}: ${error.message}`);
+            }
+        }
+
+        async function restartApp(appName) {
+            try {
+                const response = await fetch(`/api/apps/${appName}/restart`, { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    loadApps();
+                } else {
+                    alert(`Failed to restart ${appName}: ${data.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                alert(`Failed to restart ${appName}: ${error.message}`);
+            }
+        }
+
         // Initialize
         loadVersionInfo();
         connectSSE();
         loadLogSources();
+        loadApps();
+
+        // Refresh apps every 10 seconds
+        appsRefreshInterval = setInterval(loadApps, 10000);
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', function() {
@@ -1224,6 +1417,9 @@
             }
             if (logAutoRefreshInterval) {
                 clearInterval(logAutoRefreshInterval);
+            }
+            if (appsRefreshInterval) {
+                clearInterval(appsRefreshInterval);
             }
         });
     </script>

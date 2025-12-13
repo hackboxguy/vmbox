@@ -30,6 +30,7 @@ Endpoints:
 """
 
 import os
+import socket
 import subprocess
 import json
 import time
@@ -86,9 +87,66 @@ LOG_SOURCES = {
     }
 }
 
+# App Manager socket
+APP_MANAGER_SOCKET = '/run/app/app-manager.sock'
+APP_LOG_DIR = '/var/log/app'
+
 # CPU stats tracking for percentage calculation
 _prev_cpu_stats = None
 _prev_cpu_time = None
+
+
+def app_manager_request(method, path, timeout=5):
+    """
+    Send a request to the app-manager Unix socket API.
+
+    Args:
+        method: HTTP method (GET, POST)
+        path: API path (e.g., '/apps', '/apps/hello-world/start')
+        timeout: Socket timeout in seconds
+
+    Returns:
+        dict: Parsed JSON response or error dict
+    """
+    if not os.path.exists(APP_MANAGER_SOCKET):
+        return {'error': 'App manager not running', 'apps': []}
+
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(APP_MANAGER_SOCKET)
+
+        # Send HTTP request
+        request_line = f"{method} {path} HTTP/1.1\r\n"
+        headers = "Host: localhost\r\nConnection: close\r\n\r\n"
+        sock.sendall((request_line + headers).encode())
+
+        # Receive response
+        response = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+
+        sock.close()
+
+        # Parse response
+        response_str = response.decode('utf-8', errors='replace')
+        if '\r\n\r\n' in response_str:
+            _, body = response_str.split('\r\n\r\n', 1)
+            return json.loads(body)
+        else:
+            return {'error': 'Invalid response from app manager'}
+
+    except socket.timeout:
+        return {'error': 'App manager timeout', 'apps': []}
+    except ConnectionRefusedError:
+        return {'error': 'App manager not responding', 'apps': []}
+    except json.JSONDecodeError:
+        return {'error': 'Invalid JSON from app manager', 'apps': []}
+    except Exception as e:
+        return {'error': str(e), 'apps': []}
 
 
 def verify_shadow_password(username, password):
@@ -490,32 +548,28 @@ def read_log_file(source_id, lines=100, search=None):
 
 
 def perform_factory_reset():
-    """Perform factory reset by clearing overlay directories."""
+    """Perform factory reset by clearing overlay and app data directories."""
     errors = []
 
-    # Clear overlay upper directory
-    if os.path.exists(OVERLAY_UPPER):
-        try:
-            for item in os.listdir(OVERLAY_UPPER):
-                path = os.path.join(OVERLAY_UPPER, item)
-                if os.path.isdir(path):
-                    subprocess.run(['rm', '-rf', path], check=True)
-                else:
-                    os.remove(path)
-        except Exception as e:
-            errors.append(f"Failed to clear overlay upper: {e}")
+    # Directories to clear during factory reset
+    dirs_to_clear = [
+        (OVERLAY_UPPER, "overlay upper"),
+        (OVERLAY_WORK, "overlay work"),
+        (f"{DATA_PARTITION}/app-data", "app data"),
+        (f"{DATA_PARTITION}/app-config", "app config"),
+    ]
 
-    # Clear overlay work directory
-    if os.path.exists(OVERLAY_WORK):
-        try:
-            for item in os.listdir(OVERLAY_WORK):
-                path = os.path.join(OVERLAY_WORK, item)
-                if os.path.isdir(path):
-                    subprocess.run(['rm', '-rf', path], check=True)
-                else:
-                    os.remove(path)
-        except Exception as e:
-            errors.append(f"Failed to clear overlay work: {e}")
+    for dir_path, dir_name in dirs_to_clear:
+        if os.path.exists(dir_path):
+            try:
+                for item in os.listdir(dir_path):
+                    path = os.path.join(dir_path, item)
+                    if os.path.isdir(path):
+                        subprocess.run(['rm', '-rf', path], check=True)
+                    else:
+                        os.remove(path)
+            except Exception as e:
+                errors.append(f"Failed to clear {dir_name}: {e}")
 
     return errors
 
@@ -805,6 +859,96 @@ def api_change_password():
             'status': 'error',
             'message': f'Failed to change password: {e}'
         }), 500
+
+
+# App Manager API Routes
+
+@app.route('/api/apps')
+@login_required
+def api_apps():
+    """Return list of all applications with status."""
+    result = app_manager_request('GET', '/apps')
+    return jsonify(result)
+
+
+@app.route('/api/apps/<app_name>')
+@login_required
+def api_app_status(app_name):
+    """Return status of a specific application."""
+    result = app_manager_request('GET', f'/apps/{app_name}')
+    return jsonify(result)
+
+
+@app.route('/api/apps/<app_name>/start', methods=['POST'])
+@login_required
+def api_app_start(app_name):
+    """Start an application."""
+    result = app_manager_request('POST', f'/apps/{app_name}/start')
+    return jsonify(result)
+
+
+@app.route('/api/apps/<app_name>/stop', methods=['POST'])
+@login_required
+def api_app_stop(app_name):
+    """Stop an application."""
+    result = app_manager_request('POST', f'/apps/{app_name}/stop')
+    return jsonify(result)
+
+
+@app.route('/api/apps/<app_name>/restart', methods=['POST'])
+@login_required
+def api_app_restart(app_name):
+    """Restart an application."""
+    result = app_manager_request('POST', f'/apps/{app_name}/restart')
+    return jsonify(result)
+
+
+@app.route('/api/apps/<app_name>/logs')
+@login_required
+def api_app_logs(app_name):
+    """Get log content for an application."""
+    lines = request.args.get('lines', 100, type=int)
+    search = request.args.get('search', None, type=str)
+
+    # Limit max lines
+    lines = min(lines, 1000)
+
+    log_path = f'{APP_LOG_DIR}/{app_name}.log'
+
+    if not os.path.exists(log_path):
+        return jsonify({
+            'error': f'Log file not found: {log_path}',
+            'lines': [],
+            'total': 0
+        })
+
+    try:
+        with open(log_path, 'r', errors='replace') as f:
+            log_lines = f.readlines()
+        log_lines = [line.rstrip('\n') for line in log_lines]
+
+        # Filter by search term if provided
+        if search:
+            search_lower = search.lower()
+            log_lines = [line for line in log_lines if search_lower in line.lower()]
+
+        total = len(log_lines)
+
+        # Return last N lines
+        if lines > 0 and len(log_lines) > lines:
+            log_lines = log_lines[-lines:]
+
+        return jsonify({
+            'lines': log_lines,
+            'total': total,
+            'returned': len(log_lines),
+            'app': app_name
+        })
+
+    except PermissionError:
+        return jsonify({'error': 'Permission denied', 'lines': [], 'total': 0})
+    except Exception as e:
+        return jsonify({'error': str(e), 'lines': [], 'total': 0})
 
 
 if __name__ == '__main__':

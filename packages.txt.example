@@ -1,0 +1,31 @@
+# VirtualBox Alpine VM - Application Packages
+#
+# Format: NAME|GIT_REPO|VERSION|CMAKE_OPTIONS|BUILD_DEPS|PORT|PRIORITY|TYPE|DESCRIPTION
+#
+# Fields:
+#   NAME         - Unique app identifier (alphanumeric, lowercase, hyphens allowed)
+#   GIT_REPO     - Git URL or local path (prefix with file:// for local)
+#   VERSION      - Git tag, branch, or commit (use HEAD for latest)
+#   CMAKE_OPTIONS- CMake options (comma-separated, no spaces)
+#   BUILD_DEPS   - Build-time Alpine packages (comma-separated)
+#   PORT         - Network port (0 for none)
+#   PRIORITY     - Startup priority (10-90, lower = starts first)
+#   TYPE         - webapp or service
+#   DESCRIPTION  - Human-readable description
+#
+# Lines starting with # are comments
+# Empty lines are ignored
+#
+# Example entries:
+#
+# Hello World demo (from local apps/ directory)
+hello-world|file://${PROJECT_ROOT}/apps/hello-world|HEAD||cmake|8002|20|webapp|Hello World Demo
+#
+# Example: External git repository
+# my-webapp|https://github.com/user/my-webapp|v1.0.0||cmake,python3|8003|25|webapp|My Web Application
+#
+# Example: Database service (starts first, no web port for UI)
+# embedded-db|https://github.com/example/embedded-db|v2.0.0||cmake,gcc|5432|10|service|Embedded Database
+#
+# Example: Background helper service (no port)
+# helper|file:///opt/src/helper|HEAD||make|0|15|service|Background Helper

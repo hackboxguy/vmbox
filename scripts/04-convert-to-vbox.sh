@@ -36,6 +36,10 @@ SYSMGMT_GUEST_PORT="${DEFAULT_SYSMGMT_PORT##*:}"
 BUSINESS_HOST_PORT="${DEFAULT_BUSINESS_PORT%%:*}"
 BUSINESS_GUEST_PORT="${DEFAULT_BUSINESS_PORT##*:}"
 
+# App ports (populated from manifest)
+declare -a APP_PORTS=()
+APP_MANIFEST=""
+
 show_usage() {
     cat <<EOF
 Convert raw disk image to VirtualBox VM
@@ -52,6 +56,7 @@ Optional Arguments:
   --memory=MB           VM memory in MB (default: ${DEFAULT_VM_MEMORY})
   --cpus=N              Number of CPUs (default: ${DEFAULT_VM_CPUS})
   --ssh-port=HOST:GUEST SSH port forwarding (default: ${DEFAULT_SSH_PORT})
+  --appdir=DIR          Directory containing APP partition content (for port forwarding)
   --serial              Enable serial console (Linux host only)
   --export-ova          Also export as portable OVA file
   --force               Overwrite existing VM
@@ -83,6 +88,7 @@ parse_arguments() {
                 SSH_HOST_PORT="${SSH_HOST_PORT%%:*}"
                 SSH_GUEST_PORT="${arg#*:}"
                 ;;
+            --appdir=*)     APP_MANIFEST="${arg#*=}/manifest.json" ;;
             --serial)       ENABLE_SERIAL=true ;;
             --export-ova)   EXPORT_OVA=true ;;
             --force)        FORCE=true ;;
@@ -134,6 +140,44 @@ check_existing_vm() {
         else
             error "VM '$VM_NAME' already exists. Use --force to overwrite."
         fi
+    fi
+}
+
+load_app_ports() {
+    # Load application ports from manifest for port forwarding
+    if [ -z "$APP_MANIFEST" ] || [ ! -f "$APP_MANIFEST" ]; then
+        return 0
+    fi
+
+    log "Loading application ports from manifest..."
+
+    # Check if jq is available
+    if ! command -v jq &>/dev/null; then
+        warn "jq not found - cannot parse app manifest for port forwarding"
+        warn "Install jq to enable automatic app port forwarding"
+        return 0
+    fi
+
+    # Parse apps array and extract ports
+    local apps_json
+    apps_json=$(jq -r '.apps // []' "$APP_MANIFEST" 2>/dev/null)
+
+    if [ "$apps_json" = "[]" ] || [ -z "$apps_json" ]; then
+        info "No applications found in manifest"
+        return 0
+    fi
+
+    # Extract name and port for each app with port > 0
+    local app_count=0
+    while IFS='|' read -r name port; do
+        if [ -n "$name" ] && [ -n "$port" ] && [ "$port" != "0" ] && [ "$port" != "null" ]; then
+            APP_PORTS+=("${name}|${port}")
+            app_count=$((app_count + 1))
+        fi
+    done < <(jq -r '.apps[] | select(.port != null and .port > 0) | "\(.name)|\(.port)"' "$APP_MANIFEST" 2>/dev/null)
+
+    if [ $app_count -gt 0 ]; then
+        info "Found $app_count application(s) with ports"
     fi
 }
 
@@ -214,10 +258,23 @@ configure_vm() {
     VBoxManage modifyvm "$VM_NAME" \
         --natpf1 "business,tcp,,${BUSINESS_HOST_PORT},,${BUSINESS_GUEST_PORT}" &>/dev/null
 
+    # Add app port forwarding rules
+    for app_entry in "${APP_PORTS[@]}"; do
+        local app_name="${app_entry%%|*}"
+        local app_port="${app_entry##*|}"
+        VBoxManage modifyvm "$VM_NAME" \
+            --natpf1 "app-${app_name},tcp,,${app_port},,${app_port}" &>/dev/null
+    done
+
     info "Network: NAT with port forwarding"
     info "  SSH:          localhost:${SSH_HOST_PORT} -> VM:${SSH_GUEST_PORT}"
     info "  System Mgmt:  localhost:${SYSMGMT_HOST_PORT} -> VM:${SYSMGMT_GUEST_PORT}"
     info "  Business App: localhost:${BUSINESS_HOST_PORT} -> VM:${BUSINESS_GUEST_PORT}"
+    for app_entry in "${APP_PORTS[@]}"; do
+        local app_name="${app_entry%%|*}"
+        local app_port="${app_entry##*|}"
+        info "  App ${app_name}: localhost:${app_port} -> VM:${app_port}"
+    done
 
     # Serial port (for console access) - only on Linux with --serial flag
     # Serial ports with Unix socket paths don't work on Windows/macOS
@@ -308,6 +365,11 @@ show_summary() {
     echo "  SSH:            ssh -p ${SSH_HOST_PORT} ${DEFAULT_USERNAME}@localhost"
     echo "  System Mgmt:    http://localhost:${SYSMGMT_HOST_PORT}/"
     echo "  Business App:   http://localhost:${BUSINESS_HOST_PORT}/"
+    for app_entry in "${APP_PORTS[@]}"; do
+        local app_name="${app_entry%%|*}"
+        local app_port="${app_entry##*|}"
+        printf "  %-14s  http://localhost:%s/\n" "App ${app_name}:" "${app_port}"
+    done
     if [ "$ENABLE_SERIAL" = "true" ]; then
         echo "  Serial Console: socat - UNIX-CONNECT:/tmp/${VM_NAME}-serial.sock"
     fi
@@ -349,6 +411,9 @@ main() {
     # Check prerequisites
     check_vbox
     check_existing_vm
+
+    # Load app ports from manifest (if provided)
+    load_app_ports
 
     # Convert and create VM
     local vdi_file

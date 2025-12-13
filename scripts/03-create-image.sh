@@ -6,10 +6,11 @@
 #   - Partition 1: Boot (FAT32, syslinux bootloader)
 #   - Partition 2: Root (SquashFS or ext4 for dev-mode)
 #   - Partition 3: Data (ext4)
+#   - Partition 4: App (SquashFS, optional)
 #
 # Usage:
 #   sudo ./03-create-image.sh --rootfs=/path/to/rootfs --output=/path/to/output \
-#     --ospart=500M --datapart=1G
+#     --ospart=500M --datapart=1G [--apppart=512M]
 #
 set -e
 
@@ -26,7 +27,9 @@ ROOTFS_DIR=""
 OUTPUT_DIR=""
 OS_PART_SIZE="${DEFAULT_OS_PART_SIZE}"
 DATA_PART_SIZE="${DEFAULT_DATA_PART_SIZE}"
+APP_PART_SIZE="${DEFAULT_APP_PART_SIZE}"
 BOOT_PART_SIZE="${DEFAULT_BOOT_SIZE}"
+APP_DIR=""  # Optional: directory containing app content for APP partition
 DEV_MODE=false
 DEBUG_MODE=false
 
@@ -34,6 +37,7 @@ DEBUG_MODE=false
 BOOT_PART_SIZE_MB=0
 OS_PART_SIZE_MB=0
 DATA_PART_SIZE_MB=0
+APP_PART_SIZE_MB=0
 TOTAL_SIZE_MB=0
 IMAGE_FILE=""
 LOOP_DEVICE=""
@@ -56,6 +60,8 @@ Required Arguments:
 Optional Arguments:
   --ospart=SIZE         Root partition size (default: ${DEFAULT_OS_PART_SIZE})
   --datapart=SIZE       Data partition size (default: ${DEFAULT_DATA_PART_SIZE})
+  --apppart=SIZE        App partition size (default: ${DEFAULT_APP_PART_SIZE}, 0=disabled)
+  --appdir=DIR          Directory containing app content (default: rootfs/app)
   --bootpart=SIZE       Boot partition size (default: ${DEFAULT_BOOT_SIZE})
   --dev-mode            Create writable ext4 rootfs instead of SquashFS
   --debug               Keep mounted on error for debugging
@@ -75,6 +81,8 @@ parse_arguments() {
             --output=*)     OUTPUT_DIR="${arg#*=}" ;;
             --ospart=*)     OS_PART_SIZE="${arg#*=}" ;;
             --datapart=*)   DATA_PART_SIZE="${arg#*=}" ;;
+            --apppart=*)    APP_PART_SIZE="${arg#*=}" ;;
+            --appdir=*)     APP_DIR="${arg#*=}" ;;
             --bootpart=*)   BOOT_PART_SIZE="${arg#*=}" ;;
             --dev-mode)     DEV_MODE=true ;;
             --debug)        DEBUG_MODE=true ;;
@@ -95,9 +103,26 @@ parse_arguments() {
     BOOT_PART_SIZE_MB=$(parse_size_mb "$BOOT_PART_SIZE")
     OS_PART_SIZE_MB=$(parse_size_mb "$OS_PART_SIZE")
     DATA_PART_SIZE_MB=$(parse_size_mb "$DATA_PART_SIZE")
+    APP_PART_SIZE_MB=$(parse_size_mb "$APP_PART_SIZE")
 
     # Calculate total size (add 16MB for MBR and alignment)
-    TOTAL_SIZE_MB=$((BOOT_PART_SIZE_MB + OS_PART_SIZE_MB + DATA_PART_SIZE_MB + 16))
+    TOTAL_SIZE_MB=$((BOOT_PART_SIZE_MB + OS_PART_SIZE_MB + DATA_PART_SIZE_MB + APP_PART_SIZE_MB + 16))
+
+    # Set default APP_DIR if APP partition is enabled but no appdir specified
+    if [ "$APP_PART_SIZE_MB" -gt 0 ] && [ -z "$APP_DIR" ]; then
+        # Look for app directory in common locations
+        # build-app-partition.sh outputs to: $(dirname "$ROOTFS_DIR")/app-staging/app/
+        local rootfs_parent="$(dirname "$ROOTFS_DIR")"
+        if [ -d "${rootfs_parent}/app-staging/app" ]; then
+            APP_DIR="${rootfs_parent}/app-staging/app"
+        elif [ -d "${OUTPUT_DIR}/app-staging/app" ]; then
+            APP_DIR="${OUTPUT_DIR}/app-staging/app"
+        elif [ -d "${ROOTFS_DIR}/app" ]; then
+            APP_DIR="${ROOTFS_DIR}/app"
+        elif [ -d "${OUTPUT_DIR}/app" ]; then
+            APP_DIR="${OUTPUT_DIR}/app"
+        fi
+    fi
 
     IMAGE_FILE="${OUTPUT_DIR}/${IMAGE_NAME_PREFIX}.raw"
 }
@@ -139,7 +164,22 @@ partition_image() {
     parted -s "$IMAGE_FILE" mkpart primary fat32 ${boot_start}s ${boot_end}s
     parted -s "$IMAGE_FILE" set 1 boot on
     parted -s "$IMAGE_FILE" mkpart primary ext4 ${os_start}s ${os_end}s
-    parted -s "$IMAGE_FILE" mkpart primary ext4 ${data_start}s 100%
+
+    if [ "$APP_PART_SIZE_MB" -gt 0 ]; then
+        # 4-partition layout: BOOT, ROOTFS, DATA, APP
+        local data_end=$((data_start + DATA_PART_SIZE_MB * 2048 - 1))
+        local app_start=$((data_end + 1))
+
+        parted -s "$IMAGE_FILE" mkpart primary ext4 ${data_start}s ${data_end}s
+        parted -s "$IMAGE_FILE" mkpart primary ext4 ${app_start}s 100%
+
+        info "Created 4-partition layout (BOOT/ROOTFS/DATA/APP)"
+    else
+        # 3-partition layout: BOOT, ROOTFS, DATA (DATA uses remaining space)
+        parted -s "$IMAGE_FILE" mkpart primary ext4 ${data_start}s 100%
+
+        info "Created 3-partition layout (BOOT/ROOTFS/DATA)"
+    fi
 
     # Show partition layout
     info "Partition layout:"
@@ -157,14 +197,20 @@ setup_loop() {
     partprobe "$LOOP_DEVICE" 2>/dev/null || true
     sleep 1
 
+    # Determine number of partitions to verify
+    local num_partitions=3
+    if [ "$APP_PART_SIZE_MB" -gt 0 ]; then
+        num_partitions=4
+    fi
+
     # Verify partitions exist
-    for i in 1 2 3; do
+    for i in $(seq 1 $num_partitions); do
         if [ ! -e "${LOOP_DEVICE}p${i}" ]; then
             error "Partition ${i} not found: ${LOOP_DEVICE}p${i}"
         fi
     done
 
-    info "Loop device: $LOOP_DEVICE"
+    info "Loop device: $LOOP_DEVICE (${num_partitions} partitions)"
 }
 
 format_partitions() {
@@ -185,6 +231,11 @@ format_partitions() {
     # Format data partition (ext4)
     info "Formatting data partition (ext4)..."
     mkfs.ext4 -L DATA -q "${LOOP_DEVICE}p3"
+
+    # APP partition (if enabled) will be SquashFS, no pre-formatting needed
+    if [ "$APP_PART_SIZE_MB" -gt 0 ]; then
+        info "APP partition will be SquashFS (created later)"
+    fi
 
     info "Partitions formatted"
 }
@@ -265,7 +316,7 @@ create_custom_initramfs() {
 
     # Create initramfs directory structure
     mkdir -p "${initramfs_work}"/{bin,sbin,etc,proc,sys,dev,mnt,newroot,lib}
-    mkdir -p "${initramfs_work}/mnt"/{rootfs,data,overlay}
+    mkdir -p "${initramfs_work}/mnt"/{rootfs,data,overlay,app}
 
     # Copy busybox from rootfs
     if [ -f "${ROOTFS_DIR}/bin/busybox" ]; then
@@ -276,7 +327,7 @@ create_custom_initramfs() {
         for cmd in sh ash mount umount switch_root mkdir cat echo sleep mknod \
                    ls cp mv rm ln chmod chown grep sed awk cut head tail \
                    true false test [ expr dmesg lsmod modprobe find \
-                   basename dirname readlink dd; do
+                   basename dirname readlink dd mountpoint; do
             ln -sf busybox "${initramfs_work}/bin/$cmd"
         done
 
@@ -455,6 +506,15 @@ LABEL linux
 EOF
     else
         # Production mode: boot with SquashFS + overlay
+        local append_line="root=/dev/sda2 data=/dev/sda3"
+
+        # Add app partition if enabled
+        if [ "$APP_PART_SIZE_MB" -gt 0 ]; then
+            append_line="${append_line} app=/dev/sda4"
+        fi
+
+        append_line="${append_line} console=tty0 console=ttyS0,115200n8 quiet"
+
         cat > "${boot_mount}/syslinux/syslinux.cfg" <<EOF
 DEFAULT linux
 PROMPT 0
@@ -463,7 +523,7 @@ TIMEOUT 30
 LABEL linux
     LINUX /vmlinuz-virt
     INITRD /initramfs-custom
-    APPEND root=/dev/sda2 data=/dev/sda3 console=tty0 console=ttyS0,115200n8 quiet
+    APPEND ${append_line}
 EOF
     fi
 
@@ -567,6 +627,74 @@ initialize_data_partition() {
     info "Data partition initialized"
 }
 
+install_app_partition() {
+    # Skip if APP partition is not enabled
+    if [ "$APP_PART_SIZE_MB" -eq 0 ]; then
+        return 0
+    fi
+
+    log "Installing APP partition..."
+
+    local app_squashfs="${OUTPUT_DIR}/app.squashfs"
+    local app_src=""
+
+    # Determine source for APP partition content
+    if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
+        app_src="$APP_DIR"
+        info "Using app directory: $APP_DIR"
+    else
+        # Create minimal empty app structure
+        app_src="${OUTPUT_DIR}/app_empty"
+        mkdir -p "${app_src}"
+
+        # Create empty manifest
+        cat > "${app_src}/manifest.json" <<EOF
+{
+    "version": "1.0.0",
+    "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "apps": []
+}
+EOF
+        # Create directory structure
+        mkdir -p "${app_src}/startup.d"
+        mkdir -p "${app_src}/shutdown.d"
+
+        warn "No app directory found, creating empty APP partition"
+    fi
+
+    # Create SquashFS image from app directory
+    log "Creating APP SquashFS..."
+    mksquashfs "$app_src" "$app_squashfs" \
+        -comp xz \
+        -b 256K \
+        -Xbcj x86 \
+        -noappend \
+        -no-progress
+
+    local app_size
+    app_size=$(du -h "$app_squashfs" | cut -f1)
+    info "APP SquashFS created: $app_size"
+
+    # Check if SquashFS fits in partition
+    local app_size_mb
+    app_size_mb=$(du -m "$app_squashfs" | cut -f1)
+    if [ "$app_size_mb" -gt "$APP_PART_SIZE_MB" ]; then
+        error "APP SquashFS (${app_size_mb}MB) exceeds partition size (${APP_PART_SIZE_MB}MB)"
+    fi
+
+    # Write SquashFS directly to partition
+    log "Writing APP SquashFS to partition..."
+    dd if="$app_squashfs" of="${LOOP_DEVICE}p4" bs=4M status=progress
+
+    # Cleanup
+    rm -f "$app_squashfs"
+    if [ -d "${OUTPUT_DIR}/app_empty" ]; then
+        rm -rf "${OUTPUT_DIR}/app_empty"
+    fi
+
+    info "APP partition installed"
+}
+
 finalize_image() {
     log "Finalizing image..."
 
@@ -594,6 +722,14 @@ main() {
     info "Boot partition: ${BOOT_PART_SIZE_MB}MB"
     info "OS partition: ${OS_PART_SIZE_MB}MB"
     info "Data partition: ${DATA_PART_SIZE_MB}MB"
+    if [ "$APP_PART_SIZE_MB" -gt 0 ]; then
+        info "App partition: ${APP_PART_SIZE_MB}MB"
+        if [ -n "$APP_DIR" ]; then
+            info "App directory: $APP_DIR"
+        fi
+    else
+        info "App partition: disabled"
+    fi
     info "Total size: ${TOTAL_SIZE_MB}MB"
     info "Dev mode: $DEV_MODE"
 
@@ -609,6 +745,7 @@ main() {
     copy_kernel_and_initramfs
     install_rootfs
     initialize_data_partition
+    install_app_partition
     finalize_image
 
     # Clear trap on success
@@ -625,6 +762,9 @@ main() {
     echo "Next step: Convert to VirtualBox format:"
     echo "  ${SCRIPT_DIR}/04-convert-to-vbox.sh \\"
     echo "    --input=$IMAGE_FILE \\"
+    if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
+        echo "    --appdir=$APP_DIR \\"
+    fi
     echo "    --vmname=alpine-demo"
     echo ""
 }

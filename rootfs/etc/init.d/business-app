@@ -9,7 +9,7 @@ description="Business Logic Web Application"
 command="/usr/bin/python3"
 command_args="/opt/business-app/app.py"
 command_background=true
-command_user="pi"
+command_user="admin"
 
 pidfile="/run/${RC_SVCNAME}.pid"
 output_log="/var/log/${RC_SVCNAME}.log"

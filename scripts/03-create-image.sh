@@ -253,15 +253,45 @@ install_bootloader() {
     # Install syslinux to boot partition
     syslinux --install "${LOOP_DEVICE}p1"
 
+    # Find syslinux files (paths differ between distros)
+    # Arch Linux: /usr/lib/syslinux/bios/
+    # Ubuntu/Debian: /usr/lib/syslinux/mbr/ and /usr/lib/syslinux/modules/bios/
+    local mbr_bin=""
+    local bios_dir=""
+
+    for path in /usr/lib/syslinux/bios/mbr.bin /usr/lib/syslinux/mbr/mbr.bin /usr/share/syslinux/mbr.bin; do
+        if [ -f "$path" ]; then
+            mbr_bin="$path"
+            break
+        fi
+    done
+
+    for path in /usr/lib/syslinux/bios /usr/lib/syslinux/modules/bios /usr/share/syslinux; do
+        if [ -d "$path" ] && [ -f "${path}/ldlinux.c32" ]; then
+            bios_dir="$path"
+            break
+        fi
+    done
+
+    if [ -z "$mbr_bin" ]; then
+        error "syslinux MBR not found. Install syslinux:\n  Ubuntu/Debian: sudo apt install syslinux syslinux-common\n  Arch: sudo pacman -S syslinux"
+    fi
+
+    if [ -z "$bios_dir" ]; then
+        warn "syslinux BIOS modules not found, bootloader may not work properly"
+    fi
+
     # Install MBR
-    dd if=/usr/lib/syslinux/bios/mbr.bin of="$LOOP_DEVICE" bs=440 count=1 conv=notrunc
+    dd if="$mbr_bin" of="$LOOP_DEVICE" bs=440 count=1 conv=notrunc
 
     # Copy ldlinux.c32 to root (MUST be in same directory as ldlinux.sys)
-    cp /usr/lib/syslinux/bios/ldlinux.c32 "${boot_mount}/" 2>/dev/null || true
+    if [ -n "$bios_dir" ]; then
+        cp "${bios_dir}/ldlinux.c32" "${boot_mount}/" 2>/dev/null || true
 
-    # Copy syslinux modules to syslinux directory
-    mkdir -p "${boot_mount}/syslinux"
-    cp /usr/lib/syslinux/bios/*.c32 "${boot_mount}/syslinux/" 2>/dev/null || true
+        # Copy syslinux modules to syslinux directory
+        mkdir -p "${boot_mount}/syslinux"
+        cp "${bios_dir}"/*.c32 "${boot_mount}/syslinux/" 2>/dev/null || true
+    fi
 
     info "Bootloader installed"
 

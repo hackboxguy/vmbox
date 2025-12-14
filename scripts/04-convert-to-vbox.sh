@@ -79,6 +79,7 @@ USB Serial Adapters (auto-attached with --usb):
   Silicon Labs CP210x   - VID 10C4
   WCH CH340/CH341       - VID 1A86
   Prolific PL2303       - VID 067B
+  Arduino boards        - VID 2341
 
 Examples:
   $0 --input=./alpine-vbox.raw --vmname=alpine-demo
@@ -315,19 +316,23 @@ configure_vm() {
     VBoxManage modifyvm "$VM_NAME" \
         --audio-driver none &>/dev/null
 
-    # Create IDE controller (more compatible - doesn't need AHCI driver)
+    # Create SATA controller (AHCI) - works on VirtualBox 6.x and 7.x
+    # Note: linux-lts kernel has AHCI support built-in
+    log "Creating SATA controller..."
     VBoxManage storagectl "$VM_NAME" \
-        --name "IDE" \
-        --add ide \
-        --controller PIIX4 &>/dev/null
+        --name "SATA" \
+        --add sata \
+        --controller IntelAhci \
+        --portcount 1 || error "Failed to create SATA controller"
 
-    # Attach disk to IDE primary master
+    # Attach disk to SATA port 0
+    log "Attaching disk..."
     VBoxManage storageattach "$VM_NAME" \
-        --storagectl "IDE" \
+        --storagectl "SATA" \
         --port 0 \
         --device 0 \
         --type hdd \
-        --medium "$vdi_file" &>/dev/null
+        --medium "$vdi_file" || error "Failed to attach disk"
 
     info "Disk attached: $vdi_file"
 
@@ -418,6 +423,13 @@ configure_usb() {
         --vendorid 067B \
         --active yes &>/dev/null
     info "  Filter: Prolific PL2303 (VID 067B)"
+
+    # Arduino boards (MKR, Uno, Leonardo, etc.) - VID 2341
+    VBoxManage usbfilter add 4 --target "$VM_NAME" \
+        --name "Arduino" \
+        --vendorid 2341 \
+        --active yes &>/dev/null
+    info "  Filter: Arduino (VID 2341)"
 
     info "USB serial adapter filters configured"
 }
@@ -535,6 +547,7 @@ show_summary() {
         echo "    - Silicon Labs CP210x (VID 10C4)"
         echo "    - WCH CH340/CH341 (VID 1A86)"
         echo "    - Prolific PL2303 (VID 067B)"
+        echo "    - Arduino boards (VID 2341)"
         echo ""
     fi
     # Host serial passthrough summary

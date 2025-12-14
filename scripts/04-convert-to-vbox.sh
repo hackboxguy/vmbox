@@ -37,6 +37,8 @@ SYSMGMT_HOST_PORT="${DEFAULT_SYSMGMT_PORT%%:*}"
 SYSMGMT_GUEST_PORT="${DEFAULT_SYSMGMT_PORT##*:}"
 BUSINESS_HOST_PORT="${DEFAULT_BUSINESS_PORT%%:*}"
 BUSINESS_GUEST_PORT="${DEFAULT_BUSINESS_PORT##*:}"
+WEBTERMINAL_HOST_PORT="${DEFAULT_WEBTERMINAL_PORT%%:*}"
+WEBTERMINAL_GUEST_PORT="${DEFAULT_WEBTERMINAL_PORT##*:}"
 
 # App ports (populated from manifest)
 declare -a APP_PORTS=()
@@ -73,6 +75,7 @@ Optional Arguments:
 Port Forwarding (default):
   SSH:          ${DEFAULT_SSH_PORT}
   System Mgmt:  ${DEFAULT_SYSMGMT_PORT}
+  Web Terminal: ${DEFAULT_WEBTERMINAL_PORT}
 
 USB Serial Adapters (auto-attached with --usb):
   FTDI (FT232, FT2232)  - VID 0403
@@ -275,6 +278,8 @@ configure_vm() {
         --natpf1 "ssh,tcp,,${SSH_HOST_PORT},,${SSH_GUEST_PORT}" &>/dev/null
     VBoxManage modifyvm "$VM_NAME" \
         --natpf1 "sysmgmt,tcp,,${SYSMGMT_HOST_PORT},,${SYSMGMT_GUEST_PORT}" &>/dev/null
+    VBoxManage modifyvm "$VM_NAME" \
+        --natpf1 "webterminal,tcp,,${WEBTERMINAL_HOST_PORT},,${WEBTERMINAL_GUEST_PORT}" &>/dev/null
 
     # Add app port forwarding rules (for WebSocket-enabled apps)
     for app_entry in "${APP_PORTS[@]}"; do
@@ -287,6 +292,7 @@ configure_vm() {
     info "Network: NAT with port forwarding"
     info "  SSH:          localhost:${SSH_HOST_PORT} -> VM:${SSH_GUEST_PORT}"
     info "  System Mgmt:  localhost:${SYSMGMT_HOST_PORT} -> VM:${SYSMGMT_GUEST_PORT}"
+    info "  Web Terminal: localhost:${WEBTERMINAL_HOST_PORT} -> VM:${WEBTERMINAL_GUEST_PORT}"
     info "  (HTTP access: via proxy at /app/<name>/, WebSocket: direct to app port)"
     for app_entry in "${APP_PORTS[@]}"; do
         local app_name="${app_entry%%|*}"

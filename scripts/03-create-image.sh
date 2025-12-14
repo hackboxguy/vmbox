@@ -273,9 +273,9 @@ copy_kernel_and_initramfs() {
 
     local boot_mount="${OUTPUT_DIR}/mnt_boot"
 
-    # Find kernel in rootfs
+    # Find kernel in rootfs (prefer lts, fallback to virt or any)
     local kernel_file=""
-    for kf in "${ROOTFS_DIR}/boot/vmlinuz-virt" "${ROOTFS_DIR}/boot/vmlinuz-"*; do
+    for kf in "${ROOTFS_DIR}/boot/vmlinuz-lts" "${ROOTFS_DIR}/boot/vmlinuz-virt" "${ROOTFS_DIR}/boot/vmlinuz-"*; do
         if [ -f "$kf" ]; then
             kernel_file="$kf"
             break
@@ -286,8 +286,8 @@ copy_kernel_and_initramfs() {
         error "Kernel not found in rootfs"
     fi
 
-    # Copy kernel
-    cp "$kernel_file" "${boot_mount}/vmlinuz-virt"
+    # Copy kernel (use vmlinuz-lts name for consistency with syslinux.cfg)
+    cp "$kernel_file" "${boot_mount}/vmlinuz-lts"
     info "Kernel installed: $(basename "$kernel_file")"
 
     # Create custom initramfs
@@ -500,7 +500,7 @@ PROMPT 0
 TIMEOUT 30
 
 LABEL linux
-    LINUX /vmlinuz-virt
+    LINUX /vmlinuz-lts
     INITRD /initramfs-custom
     APPEND root=/dev/sda2 rootfstype=ext4 rw console=tty0 quiet
 EOF
@@ -521,7 +521,7 @@ PROMPT 0
 TIMEOUT 30
 
 LABEL linux
-    LINUX /vmlinuz-virt
+    LINUX /vmlinuz-lts
     INITRD /initramfs-custom
     APPEND ${append_line}
 EOF

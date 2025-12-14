@@ -42,3 +42,8 @@
 
 # Add your packages below:
 # packages/generic-package-hook.sh|https://github.com/your/repo.git|main|/opt/yourapp|cmake
+
+# Hello World demo (from local apps/ directory)
+hello-world|file://${PROJECT_ROOT}/apps/hello-world|HEAD||cmake|8002|20|webapp|Hello World Demo
+# web-terminal app (from git-repo)
+web-terminal|https://github.com/hackboxguy/web-terminal.git|main||cmake,python3|8003|26|webapp|Web Serial Terminal

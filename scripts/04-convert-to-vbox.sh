@@ -27,6 +27,8 @@ OUTPUT_DIR=""
 FORCE=false
 ENABLE_SERIAL=false
 EXPORT_OVA=false
+USB_MODE=""           # off, 1, 2, or 3 (USB controller version)
+HOST_SERIAL=""        # Host serial port to pass through (e.g., /dev/ttyS0, COM1)
 
 # Port forwarding
 SSH_HOST_PORT="${DEFAULT_SSH_PORT%%:*}"
@@ -57,7 +59,13 @@ Optional Arguments:
   --cpus=N              Number of CPUs (default: ${DEFAULT_VM_CPUS})
   --ssh-port=HOST:GUEST SSH port forwarding (default: ${DEFAULT_SSH_PORT})
   --appdir=DIR          Directory containing APP partition content (for port forwarding)
-  --serial              Enable serial console (Linux host only)
+  --serial              Enable serial console output (Linux host only)
+  --usb[=VERSION]       Enable USB passthrough with serial adapter filters
+                        VERSION: 1 (OHCI), 2 (EHCI, default), 3 (xHCI)
+                        Note: USB 2.0/3.0 requires VirtualBox Extension Pack
+  --hostserial=PORT     Pass through host serial port to VM COM1
+                        Linux: /dev/ttyS0, /dev/ttyS1, etc.
+                        Windows: COM1, COM2, etc.
   --export-ova          Also export as portable OVA file
   --force               Overwrite existing VM
   --help, -h            Show this help
@@ -65,11 +73,17 @@ Optional Arguments:
 Port Forwarding (default):
   SSH:          ${DEFAULT_SSH_PORT}
   System Mgmt:  ${DEFAULT_SYSMGMT_PORT}
-  Business App: ${DEFAULT_BUSINESS_PORT}
+
+USB Serial Adapters (auto-attached with --usb):
+  FTDI (FT232, FT2232)  - VID 0403
+  Silicon Labs CP210x   - VID 10C4
+  WCH CH340/CH341       - VID 1A86
+  Prolific PL2303       - VID 067B
 
 Examples:
   $0 --input=./alpine-vbox.raw --vmname=alpine-demo
-  $0 --input=./alpine-vbox.raw --vmname=my-vm --memory=2048 --cpus=4
+  $0 --input=./alpine-vbox.raw --vmname=my-vm --usb --export-ova
+  $0 --input=./alpine-vbox.raw --vmname=my-vm --usb=1 --hostserial=/dev/ttyS0
 
 EOF
     exit 0
@@ -90,6 +104,9 @@ parse_arguments() {
                 ;;
             --appdir=*)     APP_MANIFEST="${arg#*=}/manifest.json" ;;
             --serial)       ENABLE_SERIAL=true ;;
+            --usb)          USB_MODE="2" ;;  # Default to USB 2.0
+            --usb=*)        USB_MODE="${arg#*=}" ;;
+            --hostserial=*) HOST_SERIAL="${arg#*=}" ;;
             --export-ova)   EXPORT_OVA=true ;;
             --force)        FORCE=true ;;
             --help|-h)      show_usage ;;
@@ -276,27 +293,27 @@ configure_vm() {
         info "  App ${app_name}: localhost:${app_port} (WebSocket)"
     done
 
-    # Serial port (for console access) - only on Linux with --serial flag
-    # Serial ports with Unix socket paths don't work on Windows/macOS
+    # Serial port configuration
+    # --serial: Unix socket for console access (Linux only)
+    # --hostserial: Pass through host serial port (configured later)
+    # If neither is specified, disable UART
     if [ "$ENABLE_SERIAL" = "true" ]; then
         VBoxManage modifyvm "$VM_NAME" \
             --uart1 0x3F8 4 \
             --uartmode1 server "/tmp/${VM_NAME}-serial.sock" &>/dev/null
         info "Serial console: /tmp/${VM_NAME}-serial.sock"
-    else
-        # Disable serial port for cross-platform compatibility
+    elif [ -z "$HOST_SERIAL" ]; then
+        # Only disable if --hostserial is not being used
         VBoxManage modifyvm "$VM_NAME" \
             --uart1 off &>/dev/null
         info "Serial console: disabled (use --serial to enable on Linux)"
+    else
+        info "Serial: will be configured for host passthrough"
     fi
 
     # Audio (disabled for server) - use --audio-driver instead of deprecated --audio
     VBoxManage modifyvm "$VM_NAME" \
         --audio-driver none &>/dev/null
-
-    # USB (disabled for simplicity)
-    VBoxManage modifyvm "$VM_NAME" \
-        --usb off &>/dev/null
 
     # Create IDE controller (more compatible - doesn't need AHCI driver)
     VBoxManage storagectl "$VM_NAME" \
@@ -325,6 +342,137 @@ configure_vm() {
     mkdir -p "${OUTPUT_DIR}/shared"
 
     info "Shared folder: ${OUTPUT_DIR}/shared -> /mnt/shared"
+}
+
+configure_usb() {
+    # Configure USB controller and device filters
+    # Called after configure_vm() if --usb is specified
+
+    if [ -z "$USB_MODE" ]; then
+        # USB disabled
+        VBoxManage modifyvm "$VM_NAME" \
+            --usb off &>/dev/null
+        info "USB: disabled (use --usb to enable)"
+        return 0
+    fi
+
+    log "Configuring USB passthrough..."
+
+    case "$USB_MODE" in
+        1|off)
+            # USB 1.1 (OHCI) - built-in, no extension pack needed
+            VBoxManage modifyvm "$VM_NAME" \
+                --usb on \
+                --usbohci on &>/dev/null
+            info "USB 1.1 (OHCI): enabled"
+            ;;
+        2)
+            # USB 2.0 (EHCI) - requires Extension Pack
+            VBoxManage modifyvm "$VM_NAME" \
+                --usb on \
+                --usbehci on &>/dev/null
+            info "USB 2.0 (EHCI): enabled (requires VirtualBox Extension Pack)"
+            ;;
+        3)
+            # USB 3.0 (xHCI) - requires Extension Pack
+            VBoxManage modifyvm "$VM_NAME" \
+                --usb on \
+                --usbxhci on &>/dev/null
+            info "USB 3.0 (xHCI): enabled (requires VirtualBox Extension Pack)"
+            ;;
+        *)
+            warn "Unknown USB mode: $USB_MODE, using USB 2.0"
+            VBoxManage modifyvm "$VM_NAME" \
+                --usb on \
+                --usbehci on &>/dev/null
+            ;;
+    esac
+
+    # Add USB device filters for common serial adapters
+    # These filters will auto-attach matching devices when plugged in
+
+    # FTDI (FT232, FT2232, FT4232) - VID 0403
+    VBoxManage usbfilter add 0 --target "$VM_NAME" \
+        --name "FTDI Serial" \
+        --vendorid 0403 \
+        --active yes &>/dev/null
+    info "  Filter: FTDI (VID 0403)"
+
+    # Silicon Labs CP210x - VID 10C4
+    VBoxManage usbfilter add 1 --target "$VM_NAME" \
+        --name "CP210x Serial" \
+        --vendorid 10C4 \
+        --active yes &>/dev/null
+    info "  Filter: Silicon Labs CP210x (VID 10C4)"
+
+    # WCH CH340/CH341 - VID 1A86
+    VBoxManage usbfilter add 2 --target "$VM_NAME" \
+        --name "CH340/CH341 Serial" \
+        --vendorid 1A86 \
+        --active yes &>/dev/null
+    info "  Filter: WCH CH340/CH341 (VID 1A86)"
+
+    # Prolific PL2303 - VID 067B
+    VBoxManage usbfilter add 3 --target "$VM_NAME" \
+        --name "PL2303 Serial" \
+        --vendorid 067B \
+        --active yes &>/dev/null
+    info "  Filter: Prolific PL2303 (VID 067B)"
+
+    info "USB serial adapter filters configured"
+}
+
+configure_host_serial() {
+    # Configure host serial port passthrough
+    # This maps host's physical COM port to VM's COM1
+
+    if [ -z "$HOST_SERIAL" ]; then
+        return 0
+    fi
+
+    log "Configuring host serial port passthrough..."
+
+    # Check if host serial port exists
+    if [ ! -e "$HOST_SERIAL" ]; then
+        warn "Host serial port does not exist: $HOST_SERIAL"
+        warn "Available serial ports on host:"
+        ls /dev/ttyS* /dev/ttyUSB* 2>/dev/null | head -5 || echo "  (none found)"
+        return 1
+    fi
+
+    # Check if it's a real serial port (not a virtual one)
+    # Real ports have a non-zero I/O port in /proc/tty/driver/serial
+    local port_name
+    port_name=$(basename "$HOST_SERIAL")
+    if [[ "$port_name" =~ ^ttyS([0-9]+)$ ]]; then
+        local port_num="${BASH_REMATCH[1]}"
+        local port_info
+        port_info=$(grep "^${port_num}:" /proc/tty/driver/serial 2>/dev/null || true)
+        if echo "$port_info" | grep -q "uart:unknown\|port:00000000"; then
+            warn "Host serial port $HOST_SERIAL appears to be a virtual port (no hardware)"
+            warn "Use a USB serial adapter instead, or verify your PC has a physical COM port"
+            # Continue anyway - user might know what they're doing
+        fi
+    fi
+
+    info "Host port: $HOST_SERIAL -> VM COM1 (/dev/ttyS0)"
+
+    # VirtualBox UART1 is COM1 (0x3F8, IRQ 4)
+    # For host device passthrough, use --uart-mode1 with just the device path
+    # (no "hostdev" keyword - that's the old/wrong syntax)
+    local vbox_output
+    local vbox_rc
+    vbox_output=$(VBoxManage modifyvm "$VM_NAME" \
+        --uart1 0x3F8 4 \
+        --uart-mode1 "$HOST_SERIAL" 2>&1) || vbox_rc=$?
+
+    if [ -z "$vbox_rc" ] || [ "$vbox_rc" -eq 0 ]; then
+        info "Host serial passthrough configured successfully"
+    else
+        warn "Failed to configure host serial passthrough"
+        warn "VBoxManage error: $vbox_output"
+        warn "Ensure the host serial port exists and you have permissions"
+    fi
 }
 
 export_ova() {
@@ -374,6 +522,27 @@ show_summary() {
         echo "  Serial Console: socat - UNIX-CONNECT:/tmp/${VM_NAME}-serial.sock"
     fi
     echo ""
+    # USB configuration summary
+    if [ -n "$USB_MODE" ]; then
+        echo "USB Passthrough:"
+        case "$USB_MODE" in
+            1) echo "  Controller: USB 1.1 (OHCI)" ;;
+            2) echo "  Controller: USB 2.0 (EHCI) - requires Extension Pack" ;;
+            3) echo "  Controller: USB 3.0 (xHCI) - requires Extension Pack" ;;
+        esac
+        echo "  Auto-attach filters for serial adapters:"
+        echo "    - FTDI FT232/FT2232 (VID 0403)"
+        echo "    - Silicon Labs CP210x (VID 10C4)"
+        echo "    - WCH CH340/CH341 (VID 1A86)"
+        echo "    - Prolific PL2303 (VID 067B)"
+        echo ""
+    fi
+    # Host serial passthrough summary
+    if [ -n "$HOST_SERIAL" ]; then
+        echo "Host Serial Passthrough:"
+        echo "  $HOST_SERIAL -> VM /dev/ttyS0"
+        echo ""
+    fi
     echo "Default credentials:"
     echo "  Username: ${DEFAULT_USERNAME}"
     echo "  Password: ${DEFAULT_PASSWORD}"
@@ -420,6 +589,10 @@ main() {
     vdi_file=$(convert_to_vdi)
     create_vm "$vdi_file"
     configure_vm "$vdi_file"
+
+    # Configure USB and serial (after VM is created)
+    configure_usb
+    configure_host_serial
 
     # Export OVA if requested
     if [ "$EXPORT_OVA" = "true" ]; then

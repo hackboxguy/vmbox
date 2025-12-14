@@ -39,7 +39,7 @@ DEFAULT_BUSINESS_PORT="8001:8001"
 ALPINE_BASE_PACKAGES=(
     # Core system
     "alpine-base"
-    "linux-virt"
+    "linux-lts"              # Full kernel with USB support (not linux-virt)
     "linux-firmware-none"
 
     # Shell and utilities
@@ -54,6 +54,11 @@ ALPINE_BASE_PACKAGES=(
     "openssh"
     "dhcpcd"
     "iproute2"
+
+    # USB support
+    "usbutils"               # lsusb command
+    "eudev"                  # Device manager for hotplug (better than mdev)
+    "eudev-openrc"           # OpenRC service for eudev
 
     # Python and web packages
     "python3"
@@ -111,6 +116,8 @@ DATA_PARTITION_DIRS=(
 # Services to enable by default
 ENABLED_SERVICES=(
     "devfs"
+    "udev"                     # Device manager (for USB hotplug)
+    "udev-trigger"             # Trigger udev rules on boot
     "hostname"
     "networking"
     "sshd"
@@ -128,7 +135,7 @@ PROMPT 0
 TIMEOUT 10
 
 LABEL linux
-    LINUX /vmlinuz-virt
+    LINUX /vmlinuz-lts
     INITRD /initramfs-custom
     APPEND root=/dev/sda2 rootfstype=squashfs ro quiet
 '
@@ -139,7 +146,7 @@ PROMPT 0
 TIMEOUT 10
 
 LABEL linux
-    LINUX /vmlinuz-virt
+    LINUX /vmlinuz-lts
     INITRD /initramfs-custom
     APPEND root=/dev/sda2 rootfstype=ext4 rw init=/sbin/init-devmode quiet
 '

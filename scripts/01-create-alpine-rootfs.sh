@@ -153,13 +153,29 @@ EOF
     # Setup shell for root
     run_in_chroot "$ROOTFS_DIR" "sed -i 's|/bin/ash|/bin/bash|' /etc/passwd" || true
 
-    # Setup modules to load at boot (virtio for VirtualBox networking)
+    # Setup modules to load at boot
     cat > "${ROOTFS_DIR}/etc/modules" <<EOF
 # Kernel modules to load at boot
+
+# VirtIO drivers (VirtualBox networking/storage)
 virtio
 virtio_pci
 virtio_net
 virtio_blk
+
+# USB subsystem
+usbcore
+usbhid
+ehci_hcd
+ohci_hcd
+xhci_hcd
+
+# USB serial drivers (for USB-to-serial adapters)
+usbserial
+ftdi_sio
+cp210x
+ch341
+pl2303
 EOF
     info "Configured kernel modules for boot"
 

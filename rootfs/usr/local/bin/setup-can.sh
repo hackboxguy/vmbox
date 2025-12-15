@@ -36,6 +36,12 @@ if [ "$IFTYPE" != "280" ]; then
     exit 1
 fi
 
+# Small delay to ensure hardware is fully initialized
+sleep 1
+
+# Ensure can_raw module is loaded (needed for candump/cansend)
+modprobe can_raw 2>/dev/null || true
+
 logger -t "$LOG_TAG" "Configuring $INTERFACE with bitrate $BITRATE"
 
 # Configure bitrate

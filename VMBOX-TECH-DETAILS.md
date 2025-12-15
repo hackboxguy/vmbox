@@ -12,6 +12,7 @@ This document captures important technical findings, gotchas, and solutions disc
 6. [OpenRC Service Management](#openrc-service-management)
 7. [WebSocket and JSON Parsing](#websocket-and-json-parsing)
 8. [Log Management](#log-management)
+9. [USB Passthrough and CAN Bus](#usb-passthrough-and-can-bus)
 
 ---
 
@@ -468,6 +469,215 @@ def api_download_logs():
 
 ---
 
+## USB Passthrough and CAN Bus
+
+### VirtualBox USB Controller Requirements
+
+**Problem**: VM fails to start with error about USB 2.0/3.0 controller.
+
+**Root Cause**: USB 2.0 (EHCI) and USB 3.0 (xHCI) controllers require the VirtualBox Extension Pack to be installed.
+
+**Solution**: The framework defaults to USB 1.1 (OHCI) which works without Extension Pack, with automatic fallback if higher modes are requested but Extension Pack is not installed:
+
+```bash
+# In 04-convert-to-vbox.sh
+local extpack_installed=false
+if VBoxManage list extpacks 2>/dev/null | grep -q "Oracle VM VirtualBox Extension Pack"; then
+    extpack_installed=true
+fi
+
+if [ "$USB_MODE" = "2" ] || [ "$USB_MODE" = "3" ]; then
+    if [ "$extpack_installed" = "false" ]; then
+        warn "USB $USB_MODE.0 requires VirtualBox Extension Pack (not installed)"
+        warn "Falling back to USB 1.1 (OHCI)"
+        USB_MODE="1"
+    fi
+fi
+```
+
+**Key Insight**: USB 1.1 (OHCI) is sufficient for most USB-serial adapters including CAN interfaces. Only use USB 2.0/3.0 if you need higher throughput devices.
+
+### USB Device Filters for Passthrough
+
+USB devices must be explicitly passed through to the VM using VID/PID filters:
+
+```bash
+# Android ADB devices (Google/AOSP VID)
+VBoxManage usbfilter add 5 --target "$VM_NAME" \
+    --name "Android ADB" --vendorid 18d1 --active yes
+
+# CANable USB-CAN adapter (gs_usb driver)
+VBoxManage usbfilter add 6 --target "$VM_NAME" \
+    --name "CANable" --vendorid 1d50 --active yes
+
+# PCAN-USB adapter (peak_usb driver)
+VBoxManage usbfilter add 7 --target "$VM_NAME" \
+    --name "PCAN-USB" --vendorid 0c72 --active yes
+```
+
+**Finding VIDs**: Use `lsusb` on the host when the device is plugged in to find vendor ID.
+
+### CAN Interface Auto-Configuration
+
+**Problem**: CAN interfaces require manual configuration (`ip link set can0 type can bitrate 500000 && ip link set can0 up`) every time.
+
+**Challenge**: Two scenarios need to be handled:
+1. **Boot-time**: Adapter is plugged in when VM starts
+2. **Hotplug**: Adapter is plugged in after VM is running
+
+**Solution**: Dual-coverage approach using both OpenRC service and udev rule.
+
+#### Why Dual Coverage is Needed
+
+When a USB device is plugged in **before** VM boot, VirtualBox USB passthrough has a race condition:
+- The udev rule fires when the CAN interface appears
+- But USB passthrough may not be fully complete
+- Result: Interface is UP but no packets received
+
+A boot-time service with a delay gives USB passthrough time to complete.
+
+When a USB device is **hotplugged** after boot, the udev rule handles it immediately.
+
+#### udev Rule for Hotplug (`/etc/udev/rules.d/99-can.rules`)
+
+```bash
+SUBSYSTEM=="net", ACTION=="add", KERNEL=="can[0-9]*", RUN+="/usr/local/bin/setup-can.sh $kernel"
+```
+
+**Key Points**:
+- Use `KERNEL=="can[0-9]*"` not `ATTR{type}=="280"` - ATTR may not be available at add time
+- Use `$kernel` (udev syntax) not `'%k'` (old syntax) for interface name
+- Runs `/usr/local/bin/setup-can.sh` with interface name as argument
+
+#### Setup Script (`/usr/local/bin/setup-can.sh`)
+
+```bash
+#!/bin/sh
+[ -f /etc/conf.d/can ] && . /etc/conf.d/can
+
+INTERFACE="$1"
+BITRATE="${CAN_BITRATE:-500000}"
+
+# Validate interface
+[ -z "$INTERFACE" ] && exit 1
+[ ! -d "/sys/class/net/$INTERFACE" ] && exit 1
+
+# Small delay for hardware initialization
+sleep 1
+
+# Load can_raw module (needed for candump/cansend)
+modprobe can_raw 2>/dev/null || true
+
+# Configure and bring up interface
+ip link set "$INTERFACE" type can bitrate "$BITRATE"
+ip link set "$INTERFACE" up
+
+logger -t "setup-can" "$INTERFACE configured (bitrate=$BITRATE)"
+```
+
+#### OpenRC Service for Boot-time (`/etc/init.d/can-setup`)
+
+```bash
+#!/sbin/openrc-run
+description="CAN bus interface configuration"
+
+depend() {
+    need udev
+    after udev-trigger
+}
+
+start() {
+    ebegin "Configuring CAN interfaces"
+
+    [ -f /etc/conf.d/can ] && . /etc/conf.d/can
+    BITRATE="${CAN_BITRATE:-500000}"
+
+    # Wait for USB passthrough to complete
+    sleep 2
+
+    modprobe can_raw 2>/dev/null || true
+
+    # Configure any unconfigured CAN interfaces
+    for iface in /sys/class/net/can*; do
+        [ -d "$iface" ] || continue
+        name=$(basename "$iface")
+
+        if ip link show "$name" 2>/dev/null | grep -q "state DOWN"; then
+            ip link set "$name" type can bitrate "$BITRATE" 2>/dev/null && \
+            ip link set "$name" up 2>/dev/null
+        fi
+    done
+
+    eend 0
+}
+```
+
+**Key Points**:
+- Depends on `udev` and runs `after udev-trigger` to ensure devices are enumerated
+- 2-second delay allows USB passthrough to fully complete
+- Only configures interfaces that are DOWN (unconfigured)
+- Won't interfere with udev-configured interfaces
+
+#### Configuration File (`/etc/conf.d/can`)
+
+```bash
+# Default bitrate for all CAN interfaces (in bps)
+# Common values: 125000, 250000, 500000, 1000000
+CAN_BITRATE=500000
+```
+
+### CAN Kernel Modules
+
+Required modules in `/etc/modules`:
+
+```
+# CAN bus support
+can
+can_raw
+vcan
+gs_usb      # CANable, canable.io adapters
+peak_usb    # PCAN-USB adapters
+slcan       # Serial line CAN adapters
+```
+
+### Debugging CAN Issues
+
+```bash
+# Check interface status
+ip -details link show can0
+
+# Verify CAN type (should be 280)
+cat /sys/class/net/can0/type
+
+# Check for traffic
+candump can0
+
+# Send test frame
+cansend can0 123#DEADBEEF
+
+# Check module loaded
+lsmod | grep can
+
+# Check USB device passed through
+lsusb
+
+# View setup logs
+dmesg | grep -i can
+cat /var/log/messages | grep setup-can
+```
+
+### Common CAN Problems
+
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| Interface UP but 0 RX packets | `can_raw` module not loaded | Add `modprobe can_raw` to setup |
+| Interface doesn't appear | USB not passed through | Check VBoxManage usbfilter |
+| `RTNETLINK Operation not supported` | CAN modules not loaded | Check `/etc/modules` includes `can` |
+| Interface DOWN after boot | USB passthrough race | Increase delay in can-setup service |
+| "No such device" error | Wrong interface name | Use `ip link show` to find actual name |
+
+---
+
 ## Summary of Key Fixes
 
 | Issue | Root Cause | Solution |
@@ -482,3 +692,7 @@ def api_download_logs():
 | WebSocket reconnection fails | Token deleted after first validation | Allow token reuse within validity period |
 | Duplicate log messages | Both stdout and file handlers active | Use file-only logging with stdout fallback |
 | Kernel messages won't clear | dmesg is ring buffer, not file | Use `dmesg --clear` command |
+| VM won't start (USB 2.0 error) | Extension Pack not installed | Default to USB 1.1 with auto-fallback |
+| CAN interface UP but no RX | `can_raw` module not loaded | Add `modprobe can_raw` to setup script |
+| CAN works hotplug but not at boot | USB passthrough race condition | Use OpenRC service with 2-second delay |
+| udev rule doesn't match CAN | `ATTR{type}` not available at add time | Use `KERNEL=="can[0-9]*"` instead |

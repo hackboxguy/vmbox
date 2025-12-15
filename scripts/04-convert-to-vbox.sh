@@ -30,7 +30,8 @@ EXPORT_OVA=false
 USB_MODE=""           # off, 1, 2, or 3 (USB controller version)
 HOST_SERIAL=""        # Host serial port to pass through (e.g., /dev/ttyS0, COM1)
 
-# Port forwarding
+# Port forwarding (with defaults in case config.sh doesn't define them)
+: "${DEFAULT_WEBTERMINAL_PORT:=8003:8003}"
 SSH_HOST_PORT="${DEFAULT_SSH_PORT%%:*}"
 SSH_GUEST_PORT="${DEFAULT_SSH_PORT##*:}"
 SYSMGMT_HOST_PORT="${DEFAULT_SYSMGMT_PORT%%:*}"
@@ -237,10 +238,12 @@ create_vm() {
     log "Creating VirtualBox VM: $VM_NAME"
 
     # Create VM (suppress warnings - they go to stdout)
-    VBoxManage createvm \
+    if ! VBoxManage createvm \
         --name "$VM_NAME" \
         --ostype "Linux_64" \
-        --register &>/dev/null
+        --register &>/dev/null; then
+        error "Failed to create VM '$VM_NAME'"
+    fi
 
     info "VM created"
 }
@@ -251,6 +254,7 @@ configure_vm() {
     log "Configuring VM..."
 
     # Basic settings (suppress warnings - they go to stdout, not stderr)
+    # Use default PIIX3 chipset with IDE storage for maximum compatibility
     VBoxManage modifyvm "$VM_NAME" \
         --memory "$VM_MEMORY" \
         --cpus "$VM_CPUS" \
@@ -261,32 +265,32 @@ configure_vm() {
         --boot1 disk \
         --boot2 none \
         --boot3 none \
-        --boot4 none &>/dev/null
+        --boot4 none &>/dev/null || true
 
     info "Memory: ${VM_MEMORY}MB, CPUs: ${VM_CPUS}"
 
     # Network: NAT with port forwarding
-    # Use virtio for best performance - Alpine linux-virt kernel includes virtio_net
+    # Use virtio for best performance - Alpine linux-lts kernel includes virtio_net
     VBoxManage modifyvm "$VM_NAME" \
         --nic1 nat \
-        --nictype1 virtio &>/dev/null
+        --nictype1 virtio &>/dev/null || true
 
-    # Add port forwarding rules
+    # Add port forwarding rules (|| true prevents silent exit on duplicate rules)
     # SSH and System Management are always exposed
     # App ports are forwarded for WebSocket access (token-authenticated)
     VBoxManage modifyvm "$VM_NAME" \
-        --natpf1 "ssh,tcp,,${SSH_HOST_PORT},,${SSH_GUEST_PORT}" &>/dev/null
+        --natpf1 "ssh,tcp,,${SSH_HOST_PORT},,${SSH_GUEST_PORT}" &>/dev/null || true
     VBoxManage modifyvm "$VM_NAME" \
-        --natpf1 "sysmgmt,tcp,,${SYSMGMT_HOST_PORT},,${SYSMGMT_GUEST_PORT}" &>/dev/null
+        --natpf1 "sysmgmt,tcp,,${SYSMGMT_HOST_PORT},,${SYSMGMT_GUEST_PORT}" &>/dev/null || true
     VBoxManage modifyvm "$VM_NAME" \
-        --natpf1 "webterminal,tcp,,${WEBTERMINAL_HOST_PORT},,${WEBTERMINAL_GUEST_PORT}" &>/dev/null
+        --natpf1 "webterminal,tcp,,${WEBTERMINAL_HOST_PORT},,${WEBTERMINAL_GUEST_PORT}" &>/dev/null || true
 
     # Add app port forwarding rules (for WebSocket-enabled apps)
     for app_entry in "${APP_PORTS[@]}"; do
         local app_name="${app_entry%%|*}"
         local app_port="${app_entry##*|}"
         VBoxManage modifyvm "$VM_NAME" \
-            --natpf1 "app-${app_name},tcp,,${app_port},,${app_port}" &>/dev/null
+            --natpf1 "app-${app_name},tcp,,${app_port},,${app_port}" &>/dev/null || true
     done
 
     info "Network: NAT with port forwarding"
@@ -307,12 +311,12 @@ configure_vm() {
     if [ "$ENABLE_SERIAL" = "true" ]; then
         VBoxManage modifyvm "$VM_NAME" \
             --uart1 0x3F8 4 \
-            --uartmode1 server "/tmp/${VM_NAME}-serial.sock" &>/dev/null
+            --uartmode1 server "/tmp/${VM_NAME}-serial.sock" &>/dev/null || true
         info "Serial console: /tmp/${VM_NAME}-serial.sock"
     elif [ -z "$HOST_SERIAL" ]; then
         # Only disable if --hostserial is not being used
         VBoxManage modifyvm "$VM_NAME" \
-            --uart1 off &>/dev/null
+            --uart1 off &>/dev/null || true
         info "Serial console: disabled (use --serial to enable on Linux)"
     else
         info "Serial: will be configured for host passthrough"
@@ -363,7 +367,7 @@ configure_usb() {
     if [ -z "$USB_MODE" ]; then
         # USB disabled
         VBoxManage modifyvm "$VM_NAME" \
-            --usb off &>/dev/null
+            --usb off &>/dev/null || true
         info "USB: disabled (use --usb to enable)"
         return 0
     fi
@@ -375,28 +379,28 @@ configure_usb() {
             # USB 1.1 (OHCI) - built-in, no extension pack needed
             VBoxManage modifyvm "$VM_NAME" \
                 --usb on \
-                --usbohci on &>/dev/null
+                --usbohci on &>/dev/null || true
             info "USB 1.1 (OHCI): enabled"
             ;;
         2)
             # USB 2.0 (EHCI) - requires Extension Pack
             VBoxManage modifyvm "$VM_NAME" \
                 --usb on \
-                --usbehci on &>/dev/null
+                --usbehci on &>/dev/null || true
             info "USB 2.0 (EHCI): enabled (requires VirtualBox Extension Pack)"
             ;;
         3)
             # USB 3.0 (xHCI) - requires Extension Pack
             VBoxManage modifyvm "$VM_NAME" \
                 --usb on \
-                --usbxhci on &>/dev/null
+                --usbxhci on &>/dev/null || true
             info "USB 3.0 (xHCI): enabled (requires VirtualBox Extension Pack)"
             ;;
         *)
             warn "Unknown USB mode: $USB_MODE, using USB 2.0"
             VBoxManage modifyvm "$VM_NAME" \
                 --usb on \
-                --usbehci on &>/dev/null
+                --usbehci on &>/dev/null || true
             ;;
     esac
 
@@ -407,35 +411,35 @@ configure_usb() {
     VBoxManage usbfilter add 0 --target "$VM_NAME" \
         --name "FTDI Serial" \
         --vendorid 0403 \
-        --active yes &>/dev/null
+        --active yes &>/dev/null || true
     info "  Filter: FTDI (VID 0403)"
 
     # Silicon Labs CP210x - VID 10C4
     VBoxManage usbfilter add 1 --target "$VM_NAME" \
         --name "CP210x Serial" \
         --vendorid 10C4 \
-        --active yes &>/dev/null
+        --active yes &>/dev/null || true
     info "  Filter: Silicon Labs CP210x (VID 10C4)"
 
     # WCH CH340/CH341 - VID 1A86
     VBoxManage usbfilter add 2 --target "$VM_NAME" \
         --name "CH340/CH341 Serial" \
         --vendorid 1A86 \
-        --active yes &>/dev/null
+        --active yes &>/dev/null || true
     info "  Filter: WCH CH340/CH341 (VID 1A86)"
 
     # Prolific PL2303 - VID 067B
     VBoxManage usbfilter add 3 --target "$VM_NAME" \
         --name "PL2303 Serial" \
         --vendorid 067B \
-        --active yes &>/dev/null
+        --active yes &>/dev/null || true
     info "  Filter: Prolific PL2303 (VID 067B)"
 
     # Arduino boards (MKR, Uno, Leonardo, etc.) - VID 2341
     VBoxManage usbfilter add 4 --target "$VM_NAME" \
         --name "Arduino" \
         --vendorid 2341 \
-        --active yes &>/dev/null
+        --active yes &>/dev/null || true
     info "  Filter: Arduino (VID 2341)"
 
     info "USB serial adapter filters configured"

@@ -1,0 +1,8 @@
+# Auto-mount USB storage devices
+# Triggers on partition add/remove events for USB block devices
+
+# Mount USB storage partition when added
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_USAGE}=="filesystem", ENV{ID_BUS}=="usb", RUN+="/usr/local/bin/usb-automount.sh add %k"
+
+# Unmount USB storage partition when removed
+ACTION=="remove", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", RUN+="/usr/local/bin/usb-automount.sh remove %k"

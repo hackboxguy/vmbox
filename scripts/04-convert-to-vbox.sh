@@ -28,6 +28,7 @@ FORCE=false
 ENABLE_SERIAL=false
 EXPORT_OVA=false
 USB_MODE=""           # off, 1, 2, or 3 (USB controller version)
+USB_STORAGE_IDS=""    # Comma-separated USB storage vendor IDs (e.g., 8564,1234)
 HOST_SERIAL=""        # Host serial port to pass through (e.g., /dev/ttyS0, COM1)
 
 # Port forwarding (with defaults in case config.sh doesn't define them)
@@ -66,6 +67,9 @@ Optional Arguments:
   --usb[=VERSION]       Enable USB passthrough with device filters
                         VERSION: 1 (OHCI, default), 2 (EHCI), 3 (xHCI)
                         Note: USB 2.0/3.0 requires VirtualBox Extension Pack
+  --usbstorageid=IDS    USB storage vendor IDs to auto-attach (comma-separated)
+                        Example: --usbstorageid=8564,0781,1307
+                        Common IDs: 8564 (Transcend), 0781 (SanDisk), 1307 (USBest)
   --hostserial=PORT     Pass through host serial port to VM COM1
                         Linux: /dev/ttyS0, /dev/ttyS1, etc.
                         Windows: COM1, COM2, etc.
@@ -94,6 +98,7 @@ USB Devices (auto-attached with --usb):
 Examples:
   $0 --input=./alpine-vbox.raw --vmname=alpine-demo
   $0 --input=./alpine-vbox.raw --vmname=my-vm --usb --export-ova
+  $0 --input=./alpine-vbox.raw --vmname=my-vm --usb=2 --usbstorageid=8564,0781
   $0 --input=./alpine-vbox.raw --vmname=my-vm --usb=1 --hostserial=/dev/ttyS0
 
 EOF
@@ -117,6 +122,7 @@ parse_arguments() {
             --serial)       ENABLE_SERIAL=true ;;
             --usb)          USB_MODE="1" ;;  # Default to USB 1.1 (no Extension Pack needed)
             --usb=*)        USB_MODE="${arg#*=}" ;;
+            --usbstorageid=*) USB_STORAGE_IDS="${arg#*=}" ;;
             --hostserial=*) HOST_SERIAL="${arg#*=}" ;;
             --export-ova)   EXPORT_OVA=true ;;
             --force)        FORCE=true ;;
@@ -485,6 +491,24 @@ configure_usb() {
         --active yes &>/dev/null || true
     info "  Filter: PCAN-USB (VID 0c72)"
 
+    # USB storage devices (configurable via --usbstorageid)
+    if [ -n "$USB_STORAGE_IDS" ]; then
+        local filter_index=8
+        IFS=',' read -ra STORAGE_IDS <<< "$USB_STORAGE_IDS"
+        for vid in "${STORAGE_IDS[@]}"; do
+            # Remove any whitespace
+            vid=$(echo "$vid" | tr -d ' ')
+            if [ -n "$vid" ]; then
+                VBoxManage usbfilter add $filter_index --target "$VM_NAME" \
+                    --name "USB Storage $vid" \
+                    --vendorid "$vid" \
+                    --active yes &>/dev/null || true
+                info "  Filter: USB Storage (VID $vid)"
+                ((filter_index++))
+            fi
+        done
+    fi
+
     info "USB device filters configured"
 }
 
@@ -597,9 +621,12 @@ show_summary() {
             3) echo "  Controller: USB 3.0 (xHCI) - requires Extension Pack" ;;
         esac
         echo "  Auto-attach filters:"
-        echo "    Serial: FTDI (0403), CP210x (10C4), CH340 (1A86), PL2303 (067B), Arduino (2341)"
-        echo "    ADB:    Android/AOSP devices (18d1)"
-        echo "    CAN:    CANable (1d50), PCAN-USB (0c72)"
+        echo "    Serial:  FTDI (0403), CP210x (10C4), CH340 (1A86), PL2303 (067B), Arduino (2341)"
+        echo "    ADB:     Android/AOSP devices (18d1)"
+        echo "    CAN:     CANable (1d50), PCAN-USB (0c72)"
+        if [ -n "$USB_STORAGE_IDS" ]; then
+            echo "    Storage: $USB_STORAGE_IDS"
+        fi
         echo ""
     fi
     # Host serial passthrough summary

@@ -89,6 +89,7 @@ ALPINE_BASE_PACKAGES=(
     "squashfs-tools"
     "e2fsprogs"
     "dosfstools"
+    "ntfs-3g"                # NTFS read/write support for USB storage
 
     # Boot
     "syslinux"

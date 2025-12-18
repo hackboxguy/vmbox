@@ -51,6 +51,11 @@ ALPINE_BASE_PACKAGES=(
     "util-linux"
     "procps"
     "jq"                     # JSON processor (required for app-manager manifest parsing)
+    "file"                   # File type detection (useful for checking CRLF, binary vs text)
+
+    # Glibc compatibility (for running glibc-compiled binaries on musl-based Alpine)
+    "libc6-compat"           # Symlinks for glibc loader (/lib64/ld-linux-x86-64.so.2)
+    "gcompat"                # Full glibc compatibility layer
 
     # Networking
     "openssh"

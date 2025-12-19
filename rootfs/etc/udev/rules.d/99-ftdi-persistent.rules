@@ -1,0 +1,27 @@
+# Persistent symlinks for FTDI debug adapters
+# Creates stable /dev/dls-* symlinks regardless of USB enumeration order
+#
+# ftdi1 has 4 interfaces (0-3), we map using bInterfaceNumber:
+#   Interface 00 → /dev/dls-debug0 (IOC JTAG)
+#   Interface 01 → /dev/dls-debug1
+#   Interface 02 → /dev/dls-trace (DLS trace data)
+#   Interface 03 → /dev/dls-debug3 (SoC UART)
+#
+# ftdi2 has 4 interfaces (0-3), we map:
+#   Interface 00 → /dev/ftdi2-port0
+#   Interface 01 → /dev/ftdi2-port1
+#   Interface 02 → /dev/ftdi2-port2
+#   Interface 03 → /dev/ftdi2-port3
+
+# ftdi1 adapter - Debug Adapter Pro for DLS
+# Note: ATTRS{interface} and ATTRS{bInterfaceNumber} are both at USB interface level
+SUBSYSTEM=="tty", ATTRS{interface}=="ftdi1", ATTRS{bInterfaceNumber}=="00", SYMLINK+="dls-debug0"
+SUBSYSTEM=="tty", ATTRS{interface}=="ftdi1", ATTRS{bInterfaceNumber}=="01", SYMLINK+="dls-debug1"
+SUBSYSTEM=="tty", ATTRS{interface}=="ftdi1", ATTRS{bInterfaceNumber}=="02", SYMLINK+="dls-trace"
+SUBSYSTEM=="tty", ATTRS{interface}=="ftdi1", ATTRS{bInterfaceNumber}=="03", SYMLINK+="dls-debug3"
+
+# ftdi2 adapter - Secondary debug adapter
+SUBSYSTEM=="tty", ATTRS{interface}=="ftdi2", ATTRS{bInterfaceNumber}=="00", SYMLINK+="ftdi2-port0"
+SUBSYSTEM=="tty", ATTRS{interface}=="ftdi2", ATTRS{bInterfaceNumber}=="01", SYMLINK+="ftdi2-port1"
+SUBSYSTEM=="tty", ATTRS{interface}=="ftdi2", ATTRS{bInterfaceNumber}=="02", SYMLINK+="ftdi2-port2"
+SUBSYSTEM=="tty", ATTRS{interface}=="ftdi2", ATTRS{bInterfaceNumber}=="03", SYMLINK+="ftdi2-port3"

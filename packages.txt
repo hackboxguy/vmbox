@@ -54,3 +54,9 @@ dls-daemon|https://github.com/hackboxguy/dls-daemon.git|main||cmake,linux-header
 
 # ivi-configurator app
 ivi-config|file://${PROJECT_ROOT}/apps/ivi-config|HEAD||cmake,python3|8004|28|webapp|IVI Configurator
+
+# JSON-RPC TCP Server Framework (sysmgr + xmproxy services)
+# gloox-dev comes from Alpine edge/testing repo (tagged as @testing)
+# -DVMBOX_BUILD=ON enables vmbox-specific install targets (manifest, scripts)
+# -DAUTO_GIT_VERSION=OFF disables Git version lookup (no .git in build chroot)
+jsonrpc-tcp-srv|file://${PROJECT_ROOT}/apps/jsonrpc-tcp-srv|HEAD|-DVMBOX_BUILD=ON,-DAUTO_GIT_VERSION=OFF|cmake,json-c-dev,linux-headers,gloox-dev@testing|40005|70|service|JSON-RPC XMPP Proxy

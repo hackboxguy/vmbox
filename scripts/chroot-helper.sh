@@ -266,12 +266,15 @@ chroot_setup_repos() {
 
     log "Configuring APK repositories for Alpine $version..."
 
+    # Include main, community, and testing (edge) repositories
+    # Testing/edge is needed for packages like gloox-dev that aren't in stable repos
     cat > "${rootfs}/etc/apk/repositories" <<EOF
 ${mirror}/v${version}/main
 ${mirror}/v${version}/community
+@testing ${mirror}/edge/testing
 EOF
 
-    info "Repositories configured"
+    info "Repositories configured (main, community, testing)"
 }
 
 # Trap handler for cleanup on script exit

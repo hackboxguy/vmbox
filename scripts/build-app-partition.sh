@@ -205,8 +205,43 @@ install_build_deps() {
     # Convert comma-separated to space-separated
     local dep_list="${deps//,/ }"
 
-    # Install in chroot
-    run_in_chroot "$ROOTFS_DIR" "apk add --virtual .app-build-deps $dep_list make gcc g++ musl-dev"
+    # Check if any deps need the testing repository (@testing suffix)
+    # The @tag syntax doesn't work with --virtual, so we handle tagged packages separately
+    if [[ "$deps" == *"@testing"* ]]; then
+        log "Enabling Alpine testing repository for tagged packages..."
+
+        # Separate tagged packages from regular ones
+        local tagged_pkgs=""
+        local regular_pkgs=""
+        for pkg in $dep_list; do
+            if [[ "$pkg" == *"@testing" ]]; then
+                # Strip the @testing suffix - we'll install from testing repo directly
+                local pkg_name="${pkg%@testing}"
+                tagged_pkgs="$tagged_pkgs $pkg_name"
+            else
+                regular_pkgs="$regular_pkgs $pkg"
+            fi
+        done
+
+        run_in_chroot "$ROOTFS_DIR" "
+            # Remove any tagged (@testing) version of testing repo - it causes packages to be masked
+            sed -i '/@testing/d' /etc/apk/repositories 2>/dev/null || true
+            # Add testing repo (untagged) so packages are not masked
+            if ! grep -q '^https://.*edge/testing' /etc/apk/repositories 2>/dev/null; then
+                echo 'https://dl-cdn.alpinelinux.org/alpine/edge/testing' >> /etc/apk/repositories
+            fi
+            # Update package index to include testing repo
+            apk update
+            # Install packages from testing repo (now available in index)
+            apk add $tagged_pkgs
+        "
+
+        # Install remaining packages with --virtual
+        run_in_chroot "$ROOTFS_DIR" "apk add --virtual .app-build-deps $regular_pkgs make gcc g++ musl-dev"
+    else
+        # No tagged packages - install everything with --virtual
+        run_in_chroot "$ROOTFS_DIR" "apk add --virtual .app-build-deps $dep_list make gcc g++ musl-dev"
+    fi
 }
 
 # Remove build dependencies from chroot

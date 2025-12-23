@@ -250,6 +250,196 @@ remove_build_deps() {
     run_in_chroot "$ROOTFS_DIR" "apk del .app-build-deps 2>/dev/null || true"
 }
 
+# =============================================================================
+# System Packages Builder (from system-packages.txt)
+# =============================================================================
+# Builds system-level packages (libraries, tools) that install to /usr
+# and are required by application packages.
+
+# Build system packages from system-packages.txt
+build_system_packages() {
+    local system_packages_file="${PROJECT_ROOT}/system-packages.txt"
+
+    if [ ! -f "$system_packages_file" ]; then
+        info "No system-packages.txt found, skipping system package builds"
+        return 0
+    fi
+
+    # Count non-comment, non-empty lines
+    local pkg_count=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+        pkg_count=$((pkg_count + 1))
+    done < "$system_packages_file"
+
+    if [ "$pkg_count" -eq 0 ]; then
+        info "No system packages to build"
+        return 0
+    fi
+
+    log "Building $pkg_count system package(s) from system-packages.txt..."
+
+    # Install build tools first (needed for all system package builds)
+    log "Installing build tools..."
+    run_in_chroot "$ROOTFS_DIR" "apk add --no-cache build-base wget git"
+
+    local pkg_num=0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+
+        pkg_num=$((pkg_num + 1))
+
+        # Parse: NAME|SOURCE|VERSION|BUILD_SYSTEM|BUILD_OPTIONS|DEPS
+        IFS='|' read -r pkg_name pkg_source pkg_version pkg_build_system pkg_build_options pkg_deps <<< "$line"
+
+        # Validate required fields
+        if [ -z "$pkg_name" ] || [ -z "$pkg_source" ]; then
+            warn "Skipping invalid line: $line"
+            continue
+        fi
+
+        # Set defaults
+        [ -z "$pkg_version" ] && pkg_version="unknown"
+        [ -z "$pkg_build_system" ] && pkg_build_system="autoconf"
+
+        log "[$pkg_num/$pkg_count] Building system package: $pkg_name ($pkg_version)"
+        info "  Source: $pkg_source"
+        info "  Build system: $pkg_build_system"
+
+        # Install dependencies
+        if [ -n "$pkg_deps" ]; then
+            local deps_list="${pkg_deps//,/ }"
+            log "  Installing dependencies: $deps_list"
+            run_in_chroot "$ROOTFS_DIR" "apk add --no-cache $deps_list"
+        fi
+
+        # Convert comma-separated options to space-separated
+        local build_opts=""
+        if [ -n "$pkg_build_options" ]; then
+            build_opts="${pkg_build_options//,/ }"
+        fi
+
+        # Build based on build system type
+        case "$pkg_build_system" in
+            autoconf)
+                build_system_package_autoconf "$pkg_name" "$pkg_source" "$pkg_version" "$build_opts"
+                ;;
+            cmake)
+                build_system_package_cmake "$pkg_name" "$pkg_source" "$pkg_version" "$build_opts"
+                ;;
+            hook)
+                build_system_package_hook "$pkg_name" "$pkg_source" "$pkg_version" "$build_opts"
+                ;;
+            *)
+                error "Unknown build system: $pkg_build_system for package $pkg_name"
+                ;;
+        esac
+
+        info "[$pkg_num/$pkg_count] System package $pkg_name built successfully"
+
+    done < "$system_packages_file"
+
+    # Cleanup build tools (app packages will install their own via --virtual)
+    log "Cleaning up system package build tools..."
+    run_in_chroot "$ROOTFS_DIR" "apk del --no-cache build-base 2>/dev/null || true"
+
+    log "All system packages built successfully"
+}
+
+# Build an autoconf-based system package
+build_system_package_autoconf() {
+    local name="$1"
+    local source="$2"
+    local version="$3"
+    local build_opts="$4"
+
+    # Copy generic hook to chroot
+    local hook_script="${PROJECT_ROOT}/packages/generic-autoconf-hook.sh"
+    if [ ! -f "$hook_script" ]; then
+        error "Generic autoconf hook not found: $hook_script"
+    fi
+
+    cp "$hook_script" "${ROOTFS_DIR}/tmp/build-hook.sh"
+    chmod +x "${ROOTFS_DIR}/tmp/build-hook.sh"
+
+    # Run hook with environment variables
+    run_in_chroot "$ROOTFS_DIR" "
+        export HOOK_NAME='$name'
+        export HOOK_SOURCE='$source'
+        export HOOK_VERSION='$version'
+        export HOOK_BUILD_OPTIONS='$build_opts'
+        export HOOK_INSTALL_PREFIX='/usr'
+        /tmp/build-hook.sh
+    " || error "Failed to build system package: $name"
+
+    rm -f "${ROOTFS_DIR}/tmp/build-hook.sh"
+}
+
+# Build a cmake-based system package
+build_system_package_cmake() {
+    local name="$1"
+    local source="$2"
+    local version="$3"
+    local cmake_opts="$4"
+
+    run_in_chroot "$ROOTFS_DIR" "
+        cd /tmp
+
+        # Get source
+        if echo '$source' | grep -qE '\\.git\$'; then
+            git clone --depth=1 '$source' '${name}-build'
+            cd '${name}-build'
+            [ '$version' != 'HEAD' ] && git checkout '$version' 2>/dev/null || true
+        else
+            wget -q '$source' -O source.tar
+            mkdir -p '${name}-build'
+            tar xf source.tar -C '${name}-build' --strip-components=1
+            rm -f source.tar
+            cd '${name}-build'
+        fi
+
+        # Build
+        mkdir -p _build && cd _build
+        cmake .. -DCMAKE_INSTALL_PREFIX=/usr $cmake_opts
+        make -j\$(nproc)
+        make install
+
+        # Cleanup
+        cd /
+        rm -rf /tmp/${name}-build
+    " || error "Failed to build system package: $name"
+}
+
+# Build using a custom hook script
+build_system_package_hook() {
+    local name="$1"
+    local source="$2"
+    local version="$3"
+    local build_opts="$4"
+
+    local hook_script="${PROJECT_ROOT}/packages/${name}-hook.sh"
+    if [ ! -f "$hook_script" ]; then
+        error "Custom hook script not found: $hook_script"
+    fi
+
+    cp "$hook_script" "${ROOTFS_DIR}/tmp/${name}-hook.sh"
+    chmod +x "${ROOTFS_DIR}/tmp/${name}-hook.sh"
+
+    run_in_chroot "$ROOTFS_DIR" "
+        export HOOK_NAME='$name'
+        export HOOK_SOURCE='$source'
+        export HOOK_VERSION='$version'
+        export HOOK_BUILD_OPTIONS='$build_opts'
+        /tmp/${name}-hook.sh
+    " || error "Failed to build system package: $name"
+
+    rm -f "${ROOTFS_DIR}/tmp/${name}-hook.sh"
+}
+
 # Build a package using CMake in chroot
 build_package() {
     local name="$1"
@@ -603,7 +793,10 @@ main() {
     # Setup chroot environment
     setup_alpine_chroot "$ROOTFS_DIR"
 
-    # Build all packages
+    # Build system packages first (libraries that apps depend on)
+    build_system_packages
+
+    # Build all app packages
     build_all_packages
 
     log "=========================================="

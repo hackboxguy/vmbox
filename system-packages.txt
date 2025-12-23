@@ -1,0 +1,41 @@
+# VirtualBox Alpine Demo - System Packages List
+#
+# This file defines system-level packages (libraries, tools) that are built
+# and installed into the rootfs BEFORE application packages are built.
+# These packages install to /usr and are available system-wide.
+#
+# Format (6 fields, pipe-separated):
+#   NAME|SOURCE|VERSION|BUILD_SYSTEM|BUILD_OPTIONS|DEPS
+#
+# Fields:
+#   NAME          - Package name (for logging/identification)
+#   SOURCE        - Source URL: tarball (.tar.gz/.tar.bz2/.tar.xz), git (.git), or file://
+#   VERSION       - Version string (for logging, also used as git tag if applicable)
+#   BUILD_SYSTEM  - Build system: "autoconf" | "cmake" | "hook"
+#   BUILD_OPTIONS - Configure/cmake options (comma-separated, e.g., --with-openssl,--disable-static)
+#   DEPS          - Alpine package dependencies (comma-separated)
+#
+# Notes:
+#   - All packages install to /usr (system-wide prefix)
+#   - Packages are processed in order - put dependencies first
+#   - BUILD_SYSTEM "hook" requires packages/<name>-hook.sh script
+#   - Empty fields can be left blank (e.g., ||)
+#   - Lines starting with # are comments
+#
+# Examples:
+#
+#   # Autoconf package from tarball:
+#   gloox|https://camaya.net/download/gloox-1.0.28.tar.bz2|1.0.28|autoconf|--with-openssl,--without-gnutls|openssl-dev,libidn-dev,zlib-dev
+#
+#   # CMake package from git:
+#   mylib|https://github.com/user/mylib.git|v2.0.0|cmake|-DBUILD_SHARED_LIBS=ON|
+#
+#   # Custom hook script:
+#   special-lib|https://example.com/special.tar.gz|1.0|hook||build-base
+#
+# =============================================================================
+
+# Gloox XMPP library with OpenSSL support (required by jsonrpc-tcp-srv/xmproxysrv)
+# The Alpine gloox-dev package uses GnuTLS, but we need OpenSSL for compatibility
+gloox|https://camaya.net/download/gloox-1.0.28.tar.bz2|1.0.28|autoconf|--with-openssl,--without-gnutls,--enable-shared,--disable-static|openssl-dev,libidn-dev,zlib-dev
+

@@ -60,3 +60,6 @@ ivi-config|file://${PROJECT_ROOT}/apps/ivi-config|HEAD||cmake,python3|8004|28|we
 # -DVMBOX_BUILD=ON enables vmbox-specific install targets (manifest, scripts)
 # -DAUTO_GIT_VERSION=OFF disables Git version lookup (no .git in build chroot)
 jsonrpc-tcp-srv|file://${PROJECT_ROOT}/apps/jsonrpc-tcp-srv|HEAD|-DVMBOX_BUILD=ON,-DAUTO_GIT_VERSION=OFF|cmake,json-c-dev,linux-headers,gloox-dev@testing|40005|70|service|JSON-RPC XMPP Proxy
+
+# XMPP Proxy Configuration webapp (depends on jsonrpc-tcp-srv)
+xmproxy-webapp|file://${PROJECT_ROOT}/apps/xmproxy-webapp|HEAD||cmake,python3|8006|75|webapp|XMPP Proxy Configuration

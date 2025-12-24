@@ -46,8 +46,35 @@ echo "[1/4] Obtaining source code..."
 cd /tmp
 
 # Detect source type and fetch accordingly
-if echo "$SOURCE" | grep -qE '\.tar\.(gz|bz2|xz)$'; then
-    # Tarball source
+# Check file:// FIRST (before extension checks) since local files can have any extension
+if echo "$SOURCE" | grep -q '^file://'; then
+    # Local file or directory
+    LOCAL_PATH="${SOURCE#file://}"
+    echo "Using local source: $LOCAL_PATH"
+
+    if [ ! -e "$LOCAL_PATH" ]; then
+        echo "ERROR: Local source not found: $LOCAL_PATH"
+        exit 1
+    fi
+
+    if [ -f "$LOCAL_PATH" ]; then
+        # It's a file - determine compression from extension
+        case "$LOCAL_PATH" in
+            *.tar.gz)  DECOMPRESS="z" ;;
+            *.tar.bz2) DECOMPRESS="j" ;;
+            *.tar.xz)  DECOMPRESS="J" ;;
+            *)         DECOMPRESS="a" ;;  # auto-detect
+        esac
+        mkdir -p "${NAME}-build"
+        tar x${DECOMPRESS}f "$LOCAL_PATH" -C "${NAME}-build" --strip-components=1
+    else
+        # It's a directory - copy it
+        cp -a "$LOCAL_PATH" "${NAME}-build"
+    fi
+    cd "${NAME}-build"
+
+elif echo "$SOURCE" | grep -qE '\.tar\.(gz|bz2|xz)$'; then
+    # Remote tarball source
     echo "Downloading tarball: $SOURCE"
 
     # Determine compression type
@@ -73,24 +100,6 @@ elif echo "$SOURCE" | grep -qE '\.git$'; then
         git checkout "$VERSION" 2>/dev/null || true
     fi
 
-elif echo "$SOURCE" | grep -q '^file://'; then
-    # Local file or directory
-    LOCAL_PATH="${SOURCE#file://}"
-    echo "Using local source: $LOCAL_PATH"
-
-    if echo "$LOCAL_PATH" | grep -qE '\.tar\.(gz|bz2|xz)$'; then
-        case "$LOCAL_PATH" in
-            *.tar.gz)  DECOMPRESS="z" ;;
-            *.tar.bz2) DECOMPRESS="j" ;;
-            *.tar.xz)  DECOMPRESS="J" ;;
-            *)         DECOMPRESS="a" ;;
-        esac
-        mkdir -p "${NAME}-build"
-        tar x${DECOMPRESS}f "$LOCAL_PATH" -C "${NAME}-build" --strip-components=1
-    else
-        cp -a "$LOCAL_PATH" "${NAME}-build"
-    fi
-    cd "${NAME}-build"
 else
     echo "ERROR: Unknown source format: $SOURCE"
     echo "Supported: .tar.gz, .tar.bz2, .tar.xz, .git, file://"

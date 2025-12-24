@@ -37,5 +37,5 @@
 
 # Gloox XMPP library with OpenSSL support (required by jsonrpc-tcp-srv/xmproxysrv)
 # The Alpine gloox-dev package uses GnuTLS, but we need OpenSSL for compatibility
-gloox|https://camaya.net/download/gloox-1.0.28.tar.bz2|1.0.28|autoconf|--with-openssl,--without-gnutls,--enable-shared,--disable-static|openssl-dev,libidn-dev,zlib-dev
-
+#gloox|https://camaya.net/download/gloox-1.0.28.tar.bz2|1.0.28|autoconf|--with-openssl,--without-gnutls,--enable-shared,--disable-static|openssl-dev,libidn-dev,zlib-dev
+gloox|file:///tmp/gloox-1.0.28.tar.bz2|1.0.28|autoconf|--with-openssl,--without-gnutls,--enable-shared,--disable-static|openssl-dev,libidn-dev,zlib-dev

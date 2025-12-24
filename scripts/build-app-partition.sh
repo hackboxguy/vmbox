@@ -366,10 +366,30 @@ build_system_package_autoconf() {
     cp "$hook_script" "${ROOTFS_DIR}/tmp/build-hook.sh"
     chmod +x "${ROOTFS_DIR}/tmp/build-hook.sh"
 
+    # Handle local file:// sources - copy into chroot
+    local chroot_source="$source"
+    if [[ "$source" == file://* ]]; then
+        local local_path="${source#file://}"
+        # Expand variables like ${PROJECT_ROOT}
+        local_path=$(eval echo "$local_path")
+        if [ -f "$local_path" ]; then
+            local filename=$(basename "$local_path")
+            cp "$local_path" "${ROOTFS_DIR}/tmp/${filename}"
+            chroot_source="file:///tmp/${filename}"
+            info "  Copied local source to chroot: $filename"
+        elif [ -d "$local_path" ]; then
+            cp -a "$local_path" "${ROOTFS_DIR}/tmp/${name}-src"
+            chroot_source="file:///tmp/${name}-src"
+            info "  Copied local directory to chroot: ${name}-src"
+        else
+            error "Local source not found: $local_path"
+        fi
+    fi
+
     # Run hook with environment variables
     run_in_chroot "$ROOTFS_DIR" "
         export HOOK_NAME='$name'
-        export HOOK_SOURCE='$source'
+        export HOOK_SOURCE='$chroot_source'
         export HOOK_VERSION='$version'
         export HOOK_BUILD_OPTIONS='$build_opts'
         export HOOK_INSTALL_PREFIX='/usr'

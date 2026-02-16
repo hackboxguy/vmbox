@@ -23,6 +23,7 @@ import argparse
 import glob
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import shutil
 import signal
@@ -59,8 +60,11 @@ def setup_logging():
     os.makedirs(LOG_DIR, exist_ok=True)
 
     handlers = [
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(f"{LOG_DIR}/app-manager.log")
+        RotatingFileHandler(
+            f"{LOG_DIR}/app-manager.log",
+            maxBytes=5*1024*1024,
+            backupCount=3
+        )
     ]
 
     logging.basicConfig(

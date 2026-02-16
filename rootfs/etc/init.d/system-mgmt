@@ -29,6 +29,10 @@ start_pre() {
         eerror "System management app not found"
         return 1
     fi
+
+    # Export conf.d variables so start-stop-daemon child inherits them
+    export SYSTEM_MGMT_PORT="${SYSTEM_MGMT_PORT:-8000}"
+    export SYSTEM_MGMT_HOST="${SYSTEM_MGMT_HOST:-0.0.0.0}"
 }
 
 start() {

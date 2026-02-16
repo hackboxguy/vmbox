@@ -29,6 +29,10 @@ start_pre() {
         eerror "Business app not found"
         return 1
     fi
+
+    # Export conf.d variables so start-stop-daemon child inherits them
+    export BUSINESS_APP_PORT="${BUSINESS_APP_PORT:-8001}"
+    export BUSINESS_APP_HOST="${BUSINESS_APP_HOST:-0.0.0.0}"
 }
 
 start() {

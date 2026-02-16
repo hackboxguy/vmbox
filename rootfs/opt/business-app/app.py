@@ -8,6 +8,7 @@ with your actual business logic application.
 Port: 8001
 """
 
+import os
 from flask import Flask, jsonify
 
 app = Flask(__name__)
@@ -77,4 +78,6 @@ def api_health():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8001, debug=False)
+    app.run(host=os.environ.get('BUSINESS_APP_HOST', '0.0.0.0'),
+            port=int(os.environ.get('BUSINESS_APP_PORT', 8001)),
+            debug=False)

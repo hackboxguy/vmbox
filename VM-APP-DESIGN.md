@@ -194,8 +194,7 @@ Each application must include a manifest describing its requirements:
     "command": "/app/webapp1/bin/webapp1-server",
     "args": ["--config", "/data/app-config/webapp1/config.json"],
     "working_dir": "/app/webapp1",
-    "priority": 20,
-    "depends_on": ["database"]
+    "priority": 20
   },
 
   "shutdown": {
@@ -276,13 +275,7 @@ Each application must include a manifest describing its requirements:
   "interval": 10
 }
 
-// Custom script
-"health": {
-  "type": "script",
-  "command": "/app/myapp/bin/healthcheck.sh",
-  "interval": 10,
-  "timeout": 5
-}
+// Note: only "http", "tcp", and "process" types are currently supported.
 ```
 
 ---
@@ -351,7 +344,7 @@ webapp2|https://github.com/example/webapp2|v1.5.0||cmake,nodejs|8002|25|webapp|S
 │                 │                                                        │
 │                 ▼                                                        │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  02-build-packages.sh                                            │    │
+│  │  build-app-partition.sh                                            │    │
 │  │                                                                  │    │
 │  │  For each package:                                               │    │
 │  │  1. Parse packages.txt entry                                     │    │
@@ -403,7 +396,7 @@ webapp2|https://github.com/example/webapp2|v1.5.0||cmake,nodejs|8002|25|webapp|S
 ```bash
 # Build with apps
 sudo ./build.sh \
-    --mode=full \
+    --mode=incremental \
     --output=/tmp/alpine-build \
     --version=1.0.0 \
     --packages=packages.txt \
@@ -420,7 +413,7 @@ sudo ./build.sh \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--mode` | required | `base` (no apps) or `full` (with apps) |
+| `--mode` | required | `base` (no apps) or `incremental` (with apps) |
 | `--packages` | packages.txt | Path to packages.txt file |
 | `--apppart` | auto | APP partition size (auto-calculated if omitted) |
 | `--ospart` | 500M | ROOTFS partition size |

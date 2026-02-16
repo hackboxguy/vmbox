@@ -40,6 +40,7 @@ import time
 import crypt
 import hmac
 import logging
+from logging.handlers import RotatingFileHandler
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta
@@ -58,12 +59,15 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # Setup logging for failed login attempts
-logging.basicConfig(
-    filename='/var/log/system-mgmt-auth.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
 auth_logger = logging.getLogger('auth')
+auth_logger.setLevel(logging.INFO)
+_auth_handler = RotatingFileHandler(
+    '/var/log/system-mgmt-auth.log',
+    maxBytes=2*1024*1024,
+    backupCount=3
+)
+_auth_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+auth_logger.addHandler(_auth_handler)
 
 # Configuration
 VERSION_FILE = '/etc/image-version'
@@ -1382,4 +1386,6 @@ def app_proxy_write(app_name, path):
 
 if __name__ == '__main__':
     # Use threaded mode for SSE support
-    app.run(host='0.0.0.0', port=8000, debug=False, threaded=True)
+    app.run(host=os.environ.get('SYSTEM_MGMT_HOST', '0.0.0.0'),
+            port=int(os.environ.get('SYSTEM_MGMT_PORT', 8000)),
+            debug=False, threaded=True)

@@ -1,0 +1,6 @@
+[submodule "apps/jsonrpc-tcp-srv"]
+	path = apps/jsonrpc-tcp-srv
+	url = https://github.com/hackboxguy/jsonrpc-tcp-srv.git
+[submodule "apps/xmproxy-webapp"]
+	path = apps/xmproxy-webapp
+	url = https://github.com/hackboxguy/xmproxy-webapp.git

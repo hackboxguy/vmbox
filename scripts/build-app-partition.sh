@@ -35,6 +35,7 @@ PACKAGES_FILE=""
 APP_STAGING=""
 VERSION=""
 DEBUG_MODE=false
+GIT_TOKEN="${GIT_TOKEN:-}"  # Git token for private repos (env or --git-token=)
 
 # Build directory (inside chroot)
 BUILD_DIR="/tmp/app-build"
@@ -56,6 +57,9 @@ Required Arguments:
 Optional Arguments:
   --output=DIR         Output staging directory (default: \$ROOTFS/../app-staging)
   --version=VERSION    Version string for global manifest (default: 1.0.0)
+  --git-token=TOKEN    Git token for cloning private repositories
+                       Can also be set via GIT_TOKEN environment variable
+                       (env variable is preferred to avoid token in ps output)
   --debug              Keep build artifacts on failure
   --help, -h           Show this help
 
@@ -89,6 +93,7 @@ parse_arguments() {
             --packages=*)   PACKAGES_FILE="${arg#*=}" ;;
             --output=*)     APP_STAGING="${arg#*=}" ;;
             --version=*)    VERSION="${arg#*=}" ;;
+            --git-token=*)  GIT_TOKEN="${arg#*=}" ;;
             --debug)        DEBUG_MODE=true ;;
             --help|-h)      show_usage ;;
             *)              error "Unknown argument: $arg" ;;
@@ -762,6 +767,9 @@ build_all_packages() {
 
 # Cleanup function
 cleanup() {
+    # Always remove .netrc (contains credentials)
+    rm -f "${ROOTFS_DIR}/root/.netrc" 2>/dev/null || true
+
     if [ "${DEBUG_MODE}" != "true" ]; then
         log "Cleaning up..."
         rm -rf "${ROOTFS_DIR}${BUILD_DIR}" 2>/dev/null || true
@@ -812,6 +820,18 @@ main() {
 
     # Setup chroot environment
     setup_alpine_chroot "$ROOTFS_DIR"
+
+    # Inject .netrc for private git repo access (if token provided)
+    if [ -n "$GIT_TOKEN" ]; then
+        log "Configuring git credentials for private repos..."
+        cat > "${ROOTFS_DIR}/root/.netrc" <<EOF
+machine github.com
+login x-access-token
+password ${GIT_TOKEN}
+EOF
+        chmod 600 "${ROOTFS_DIR}/root/.netrc"
+        info "Git credentials configured (.netrc)"
+    fi
 
     # Build system packages first (libraries that apps depend on)
     build_system_packages

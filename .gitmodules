@@ -4,3 +4,6 @@
 [submodule "apps/xmproxy-webapp"]
 	path = apps/xmproxy-webapp
 	url = https://github.com/hackboxguy/xmproxy-webapp.git
+[submodule "apps/ivi-config"]
+	path = apps/ivi-config
+	url = https://github.com/hackboxguy/ivi-config.git

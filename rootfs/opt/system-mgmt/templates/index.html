@@ -703,6 +703,10 @@
                     <span class="stat-value" id="hostname">-</span>
                 </div>
                 <div class="stat-row">
+                    <span class="stat-label">Image Version</span>
+                    <span class="stat-value" id="image-version">-</span>
+                </div>
+                <div class="stat-row">
                     <span class="stat-label">Uptime</span>
                     <span class="stat-value" id="uptime">-</span>
                 </div>
@@ -1107,6 +1111,8 @@
                 if (data.version) {
                     document.getElementById('version-info').textContent =
                         `Version ${data.version.version} (${data.version.build_mode})`;
+                    document.getElementById('image-version').textContent =
+                        data.version.version || '-';
                     document.getElementById('alpine-version').textContent =
                         data.version.alpine_version || '-';
                     document.getElementById('build-date').textContent =

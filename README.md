@@ -13,7 +13,11 @@ VMBOX provides:
 - **Cross-Platform**: Export as OVA for use on Windows, macOS, or Linux
 - **Minimal Footprint**: Based on Alpine Linux (~150MB compressed)
 
-## Architecture
+## System Architecture
+
+![VMBOX System Architecture](images/vmbox-sys-arch.png)
+
+## Partition Layout
 
 ### Base Configuration (3-Partition)
 

@@ -125,14 +125,16 @@ Build VMBOX with custom web applications packaged into the APP partition:
 ### Step 1: Clone Repository and Prepare Apps
 
 ```bash
-# Clone VMBOX
-git clone https://github.com/hackboxguy/vmbox.git
+# Clone VMBOX (with submodules)
+git clone --recurse-submodules https://github.com/hackboxguy/vmbox.git
 cd vmbox
 
-# Clone or create custom apps in the apps/ folder
+# Or, if already cloned, initialize submodules:
+git submodule update --init --recursive
+
+# Clone additional apps into the apps/ folder as needed
 cd apps/
 git clone https://github.com/hackboxguy/web-terminal.git
-# Add more apps as needed...
 cd ..
 ```
 
@@ -276,6 +278,7 @@ sudo ./scripts/03-create-image.sh \
     [--usb=1|2|3] \         # USB version (1=OHCI, 2=EHCI, 3=xHCI)
     [--serial] \            # Enable serial console (Linux only)
     [--hostserial=/dev/X] \ # Pass through host serial port
+    [--pcan] \              # Enable PCAN-USB adapter filter (VID 0c72)
     [--export-ova] \        # Export portable OVA file
     [--force]               # Overwrite existing VM
 ```
@@ -286,7 +289,18 @@ sudo ./scripts/03-create-image.sh \
 sudo ./scripts/build-app-partition.sh \
     --packages=packages.txt \   # Package list file
     --output=/path/to/output \  # Output directory
-    --rootfs=/path/to/rootfs    # Rootfs for chroot builds
+    --rootfs=/path/to/rootfs \  # Rootfs for chroot builds
+    [--git-token=TOKEN]         # Git token for private repos
+```
+
+The `--git-token` flag injects a `.netrc` credential file into the chroot so that
+`git clone` can access private GitHub repositories during the build. The token is
+removed automatically after the build completes. You can also set the `GIT_TOKEN`
+environment variable instead:
+
+```bash
+export GIT_TOKEN=ghp_xxxxxxxxxxxx
+sudo -E ./scripts/build-app-partition.sh --packages=packages.txt ...
 ```
 
 ## System Management WebUI
@@ -334,7 +348,9 @@ Features:
 vmbox/
 ├── build.sh                    # Main build orchestrator
 ├── config.sh                   # Default configuration values
+├── Makefile                    # Lint and smoke-test targets
 ├── packages.txt                # App package list (for APP partition)
+├── system-packages.txt         # System-level library dependencies
 ├── README.md                   # This file
 │
 ├── scripts/
@@ -344,7 +360,8 @@ vmbox/
 │   ├── 02-build-packages.sh    # Build apps from packages.txt
 │   ├── build-app-partition.sh  # Create APP partition content
 │   ├── 03-create-image.sh      # Assemble disk image
-│   └── 04-convert-to-vbox.sh   # Convert to VirtualBox VM
+│   ├── 04-convert-to-vbox.sh   # Convert to VirtualBox VM
+│   └── smoke-test.sh           # Build configuration validation
 │
 ├── rootfs/                     # Files overlaid onto Alpine
 │   ├── etc/
@@ -353,8 +370,9 @@ vmbox/
 │   └── opt/
 │       └── system-mgmt/        # System management webapp
 │
-├── apps/                       # Custom applications (for APP partition)
-│   └── web-terminal/           # Example: Serial console terminal
+├── apps/                       # Custom applications (git submodules or local)
+│   ├── jsonrpc-tcp-srv/        # JSON-RPC XMPP Proxy (submodule)
+│   └── xmproxy-webapp/         # XMPP Proxy Configuration (submodule)
 │
 └── initramfs/
     └── init                    # Custom init for overlay boot
@@ -404,6 +422,13 @@ VMBOX can pass through USB serial adapters for web-based terminal access:
 # - WCH CH340/CH341 (VID 1A86)
 # - Prolific PL2303 (VID 067B)
 # - Arduino boards (VID 2341)
+
+# Optional: enable PCAN-USB CAN bus adapter (VID 0C72)
+./scripts/04-convert-to-vbox.sh \
+  --input=image.raw \
+  --vmname=vmbox \
+  --usb=2 \
+  --pcan
 ```
 
 ## VM Management
@@ -426,6 +451,32 @@ VBoxManage export vmbox -o vmbox.ova
 
 # List running VMs
 VBoxManage list runningvms
+```
+
+## Linting & Testing
+
+A `Makefile` provides quick validation targets that do not require root or a full build:
+
+```bash
+make lint          # Run shellcheck + Python syntax check on core files
+make smoke-test    # Validate packages.txt, system-packages.txt, and script syntax
+make check         # Run lint + smoke-test
+```
+
+| Target | What it checks |
+|--------|---------------|
+| `lint-shell` | `shellcheck -S warning` on core build scripts |
+| `lint-python` | `python3 -m py_compile` on core Python files |
+| `smoke-test` | Field counts and URL format in `packages.txt` / `system-packages.txt`, `bash -n` on all scripts |
+
+Install optional dependencies for full coverage:
+
+```bash
+# Arch Linux
+sudo pacman -S shellcheck python
+
+# Ubuntu/Debian
+sudo apt install shellcheck python3
 ```
 
 ## Troubleshooting

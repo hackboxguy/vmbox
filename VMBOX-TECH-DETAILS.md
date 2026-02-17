@@ -227,6 +227,31 @@ Services are enabled in the order listed in `ENABLED_SERVICES`. For proper boot 
 5. `dhcpcd` - DHCP client
 6. Custom services...
 
+### conf.d Variables Not Reaching Daemon Processes
+
+**Problem**: Environment variables defined in `/etc/conf.d/<svcname>` are available inside the init script shell but the daemon launched by `start-stop-daemon --background` doesn't see them.
+
+**Root Cause**: OpenRC's `openrc-run` automatically sources `/etc/conf.d/$RC_SVCNAME`, so the variables exist in the init script's process. However, `start-stop-daemon --background` forks a new process and does **not** inherit the parent shell's exported variables. Alpine's `start-stop-daemon` also lacks a `--env` flag (unlike some other implementations).
+
+**Solution**: Export the variables in `start_pre()` with defaults. Because `start-stop-daemon` on Alpine **does** inherit the environment of the calling shell when not using `--chuid`/`--user` with login, exporting them before the `start()` call ensures the child process receives them:
+
+```bash
+start_pre() {
+    # Export conf.d variables so start-stop-daemon child inherits them
+    export SYSTEM_MGMT_PORT="${SYSTEM_MGMT_PORT:-8000}"
+    export SYSTEM_MGMT_HOST="${SYSTEM_MGMT_HOST:-0.0.0.0}"
+}
+```
+
+The Python app then reads these with `os.environ.get()`:
+
+```python
+app.run(host=os.environ.get('SYSTEM_MGMT_HOST', '0.0.0.0'),
+        port=int(os.environ.get('SYSTEM_MGMT_PORT', 8000)))
+```
+
+**Key Insight**: Always provide defaults on both sides (shell and Python) so the app works even without a conf.d file. The conf.d file only needs to be created when overriding the defaults.
+
 ### Checking Service Status
 
 ```bash
@@ -429,19 +454,47 @@ os.remove(path)  # DON'T DO THIS
 
 **Root Cause**: Both a file handler and stdout handler were configured. OpenRC captures stdout and writes it to the same log file, resulting in duplicates.
 
-**Solution**: Use file-only logging with stdout as fallback:
+**Solution**: Use file-only logging with `RotatingFileHandler` (no stdout handler):
 
 ```python
-def setup_logging():
-    handlers = []
-    try:
-        handlers.append(logging.FileHandler(APP_LOG_FILE))
-    except Exception:
-        # Fall back to stdout only if file logging fails
-        handlers.append(logging.StreamHandler(sys.stdout))
+from logging.handlers import RotatingFileHandler
 
+def setup_logging():
+    os.makedirs(LOG_DIR, exist_ok=True)
+    handlers = [
+        RotatingFileHandler(
+            f"{LOG_DIR}/app-manager.log",
+            maxBytes=5*1024*1024,   # 5 MB per file
+            backupCount=3           # Keep 3 rotated files
+        )
+    ]
     logging.basicConfig(level=logging.INFO, handlers=handlers)
 ```
+
+OpenRC's `output_log`/`error_log` still captures any uncaught stdout/stderr as a safety net.
+
+### Log Rotation for Embedded Systems
+
+**Problem**: Log files grow unbounded on a system with limited disk space (SquashFS rootfs + small ext4 data partition). A long-running VM can eventually fill the data partition with logs.
+
+**Solution**: Use Python's `RotatingFileHandler` instead of plain `FileHandler`:
+
+```python
+from logging.handlers import RotatingFileHandler
+
+handler = RotatingFileHandler(
+    '/var/log/app/app-manager.log',
+    maxBytes=5*1024*1024,   # Rotate at 5 MB
+    backupCount=3           # Keep app-manager.log.1, .2, .3
+)
+```
+
+**Sizing guidelines**:
+- Main services (app-manager): `maxBytes=5MB`, `backupCount=3` → max 20 MB total
+- Auxiliary logs (auth log): `maxBytes=2MB`, `backupCount=3` → max 8 MB total
+- Adjust based on available space on the DATA partition
+
+**Key Insight**: `RotatingFileHandler` handles rotation atomically — the current file is renamed and a new empty file is created. Existing file handles continue working. No external tool like `logrotate` is needed, keeping the Alpine image minimal.
 
 ### Download Logs as ZIP
 
@@ -510,10 +563,13 @@ VBoxManage usbfilter add 5 --target "$VM_NAME" \
 VBoxManage usbfilter add 6 --target "$VM_NAME" \
     --name "CANable" --vendorid 1d50 --active yes
 
-# PCAN-USB adapter (peak_usb driver)
-VBoxManage usbfilter add 7 --target "$VM_NAME" \
+# PCAN-USB adapter (peak_usb driver) - opt-in via --pcan flag
+# Filter index is assigned dynamically after other filters
+VBoxManage usbfilter add $next_filter --target "$VM_NAME" \
     --name "PCAN-USB" --vendorid 0c72 --active yes
 ```
+
+**Note**: The PCAN-USB filter is **not** added by default. Pass `--pcan` to `04-convert-to-vbox.sh` to enable it. The filter index is assigned dynamically to avoid gaps.
 
 **Finding VIDs**: Use `lsusb` on the host when the device is plugged in to find vendor ID.
 
@@ -690,7 +746,9 @@ cat /var/log/messages | grep setup-can
 | Boot waits for serial console | `console=ttyS0` in kernel cmdline | Remove `console=ttyS0`, use only `console=tty0` |
 | Typing "2" disconnects WebSocket | `json.loads("2")` returns int, not dict | Check `isinstance(msg, dict)` before accessing `.get()` |
 | WebSocket reconnection fails | Token deleted after first validation | Allow token reuse within validity period |
-| Duplicate log messages | Both stdout and file handlers active | Use file-only logging with stdout fallback |
+| Duplicate log messages | Both stdout and file handlers active | Use file-only `RotatingFileHandler` (no stdout handler) |
+| Unbounded log growth | Plain `FileHandler` never rotates | Use `RotatingFileHandler` with size limits |
+| conf.d vars missing in daemon | `start-stop-daemon` doesn't inherit shell env | Export vars in `start_pre()` with defaults |
 | Kernel messages won't clear | dmesg is ring buffer, not file | Use `dmesg --clear` command |
 | VM won't start (USB 2.0 error) | Extension Pack not installed | Default to USB 1.1 with auto-fallback |
 | CAN interface UP but no RX | `can_raw` module not loaded | Add `modprobe can_raw` to setup script |

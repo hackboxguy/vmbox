@@ -2,6 +2,8 @@
 
 A flexible build system for generating minimal Alpine Linux-based VirtualBox images. VMBOX can be deployed as a **base reference framework** or extended with **custom applications** packaged into a separate APP partition.
 
+![VMBOX System Architecture](images/vmbox-sys-architecture.png)
+
 ## Overview
 
 VMBOX provides:

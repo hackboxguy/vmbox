@@ -344,7 +344,7 @@ webapp2|https://github.com/example/webapp2|v1.5.0||cmake,nodejs|8002|25|webapp|S
 │                 │                                                        │
 │                 ▼                                                        │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  build-app-partition.sh                                            │    │
+│  │  build-app-partition.sh                                          │    │
 │  │                                                                  │    │
 │  │  For each package:                                               │    │
 │  │  1. Parse packages.txt entry                                     │    │
@@ -668,8 +668,8 @@ The system-mgmt WebUI displays an "Applications" panel:
 │  │   Health: N/A                 Last: 5m ago                        │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
 │                                                                         │
-│  Legend: ● Running  ○ Stopped  ◐ Starting  ⚠ Unhealthy                 │
-│  Actions: [Open] Open UI  [▶] Start  [↻] Restart  [■] Stop             │
+│  Legend: ● Running  ○ Stopped  ◐ Starting  ⚠ Unhealthy                  │
+│  Actions: [Open] Open UI  [▶] Start  [↻] Restart  [■] Stop              │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 

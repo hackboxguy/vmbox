@@ -236,7 +236,7 @@ def proxy_request_to_app(app_name, path):
         # Create request with same method and headers
         req = urllib.request.Request(
             target_url,
-            data=request.get_data() if request.method in ['POST', 'PUT', 'PATCH'] else None,
+            data=request.get_data() if request.method in ['POST', 'PUT', 'PATCH', 'DELETE'] else None,
             method=request.method
         )
 
@@ -244,6 +244,7 @@ def proxy_request_to_app(app_name, path):
         for header in ['Content-Type', 'Accept', 'Accept-Language', 'Accept-Encoding']:
             if header in request.headers:
                 req.add_header(header, request.headers[header])
+        req.add_header('X-VMBOX-System-Proxy', '1')
 
         # Make request to backend
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -263,7 +264,11 @@ def proxy_request_to_app(app_name, path):
 
     except urllib.error.HTTPError as e:
         content = e.read() if e.fp else b''
-        return Response(content, status=e.code, mimetype='text/html')
+        flask_resp = Response(content, status=e.code)
+        content_type = e.headers.get('Content-Type') if e.headers else None
+        if content_type:
+            flask_resp.headers['Content-Type'] = content_type
+        return flask_resp
     except urllib.error.URLError as e:
         return Response(
             json.dumps({'error': f'Cannot connect to {app_name}: {str(e.reason)}'}),
@@ -1351,6 +1356,12 @@ def api_app_logs(app_name):
 
 
 # App Proxy Routes - Authenticate and forward requests to backend apps
+
+@app.route('/app/<app_name>')
+def app_proxy_redirect(app_name):
+    """Redirect app proxy roots to the trailing-slash form required by relative assets."""
+    return redirect(url_for('app_proxy', app_name=app_name, path=''))
+
 
 @app.route('/app/<app_name>/', defaults={'path': ''})
 @app.route('/app/<app_name>/<path:path>')

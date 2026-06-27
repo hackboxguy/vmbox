@@ -1,0 +1,11 @@
+# VMBOX DNG Toolkit deployment package list
+#
+# The VMBOX System Management UI is built into the base rootfs by
+# scripts/01-create-alpine-rootfs.sh. This APP-partition package list only
+# needs to add the DNG Toolkit webapp.
+#
+# Format:
+#   NAME|GIT_REPO|VERSION|CMAKE_OPTIONS|BUILD_DEPS|PORT|PRIORITY|TYPE|DESCRIPTION
+
+# DNG Toolkit webapp from the checked-out submodule.
+dng-toolkit-webapp|file://${PROJECT_ROOT}/apps/dngtoolkit-webapp|HEAD||cmake,python3|8007|82|webapp|DNG Toolkit Web Application

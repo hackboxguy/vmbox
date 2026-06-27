@@ -7,3 +7,6 @@
 [submodule "apps/ivi-config"]
 	path = apps/ivi-config
 	url = https://github.com/hackboxguy/ivi-config.git
+[submodule "apps/dngtoolkit-webapp"]
+	path = apps/dngtoolkit-webapp
+	url = https://github.com/hackboxguy/dngtoolkit-webapp.git

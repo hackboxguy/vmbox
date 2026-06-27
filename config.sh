@@ -58,6 +58,7 @@ ALPINE_BASE_PACKAGES=(
     "gcompat"                # Full glibc compatibility layer
 
     # Networking
+    "ca-certificates"
     "openssh"
     "dhcpcd"
     "iproute2"

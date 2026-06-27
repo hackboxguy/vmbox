@@ -109,6 +109,13 @@ PIP_PACKAGES=(
     "httpx==0.27.2"
     "pydantic==1.10.26"
     "waitress"
+    # HTTP stack aligned with the locally verified DNG/SSO behavior.
+    # Keep these in sync with dngtoolkit-webapp/requirements.txt.
+    "requests==2.34.2"
+    "urllib3==2.7.0"
+    "charset-normalizer==3.4.7"
+    "idna==3.18"
+    "certifi==2026.6.17"
 )
 
 # Avoid source builds for Rust/native Python packages in the Alpine rootfs.

@@ -241,7 +241,12 @@ install_pip_packages() {
     log "Installing pip packages..."
 
     local packages="${PIP_PACKAGES[*]}"
-    run_in_chroot "$ROOTFS_DIR" "pip3 install --no-cache-dir --break-system-packages $packages"
+    local pip_args="--no-cache-dir --break-system-packages"
+    if [ -n "${PIP_ONLY_BINARY:-}" ]; then
+        pip_args="$pip_args --only-binary=${PIP_ONLY_BINARY}"
+    fi
+
+    run_in_chroot "$ROOTFS_DIR" "pip3 install $pip_args $packages"
 
     info "Pip packages installed: $packages"
 }

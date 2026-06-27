@@ -13,7 +13,7 @@ ALPINE_MINIROOTFS_URL="${ALPINE_MIRROR}/v${ALPINE_VERSION}/releases/${ALPINE_ARC
 # Default partition sizes (in MB or with suffix M/G)
 DEFAULT_BOOT_SIZE="64M"
 DEFAULT_OS_PART_SIZE="500M"
-DEFAULT_DATA_PART_SIZE="1024M"
+DEFAULT_DATA_PART_SIZE="4096M"
 DEFAULT_APP_PART_SIZE="0"  # 0 = no APP partition (optional)
 
 # Default hostname
@@ -105,9 +105,15 @@ PIP_PACKAGES=(
     "flask-sock"        # WebSocket support for Flask
     "simple-websocket"  # Backend for flask-sock
     "flask-cors"
-    "openai"
+    "openai==1.35.13"
+    "httpx==0.27.2"
+    "pydantic==1.10.26"
     "waitress"
 )
+
+# Avoid source builds for Rust/native Python packages in the Alpine rootfs.
+# If a musl wheel is unavailable, fail clearly during image build.
+PIP_ONLY_BINARY="${PIP_ONLY_BINARY:-:all:}"
 
 # Build dependencies (installed for package building, removed after)
 ALPINE_BUILD_PACKAGES=(

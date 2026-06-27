@@ -1,5 +1,8 @@
 #!/bin/sh
 #
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "${SCRIPT_DIR}/config.sh"
+
 sudo ./build.sh --mode=base --output=/tmp/alpine-build --version=1.0.1
 
 sudo ./scripts/build-app-partition.sh \
@@ -11,7 +14,7 @@ sudo ./scripts/03-create-image.sh \
   --rootfs=/tmp/alpine-build/rootfs \
   --output=/tmp/alpine-build \
   --ospart=600M \
-  --datapart=200M \
+  --datapart="${DEFAULT_DATA_PART_SIZE}" \
   --apppart=300M \
   --appdir=/tmp/alpine-build/app/app
 

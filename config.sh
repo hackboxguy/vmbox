@@ -59,6 +59,7 @@ ALPINE_BASE_PACKAGES=(
 
     # Networking
     "ca-certificates"
+    "curl"                   # HTTP client for DNG/SSO connectivity diagnostics
     "openssh"
     "dhcpcd"
     "iproute2"

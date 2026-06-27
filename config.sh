@@ -77,7 +77,11 @@ ALPINE_BASE_PACKAGES=(
     "python3"
     "py3-pip"
     "py3-flask"
+    "py3-cryptography"
+    "py3-dateutil"
+    "py3-lxml"
     "py3-pyserial"
+    "py3-yaml"
     "py3-requests"
     "py3-websockets"
 
@@ -99,6 +103,9 @@ ALPINE_BASE_PACKAGES=(
 PIP_PACKAGES=(
     "flask-sock"        # WebSocket support for Flask
     "simple-websocket"  # Backend for flask-sock
+    "flask-cors"
+    "openai"
+    "waitress"
 )
 
 # Build dependencies (installed for package building, removed after)

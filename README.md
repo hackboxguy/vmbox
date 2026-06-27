@@ -396,14 +396,16 @@ vmbox/
 
 ### Factory Reset
 
-Clears overlay and app data while preserving the base system:
+Stops running apps best-effort, clears resettable DATA domains, and reboots while preserving the base system and `/data/shared`:
 
 ```bash
 # What happens during factory reset:
+# app-manager stops running apps best-effort
 rm -rf /data/overlay/upper/*
 rm -rf /data/overlay/work/*
 rm -rf /data/app-data/*
 rm -rf /data/app-config/*
+rm -rf /data/home/*
 reboot
 ```
 

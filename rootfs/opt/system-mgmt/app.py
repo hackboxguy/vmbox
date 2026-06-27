@@ -40,6 +40,7 @@ import time
 import crypt
 import hmac
 import logging
+import shutil
 from logging.handlers import RotatingFileHandler
 import urllib.request
 import urllib.error
@@ -74,6 +75,9 @@ VERSION_FILE = '/etc/image-version'
 DATA_PARTITION = '/data'
 OVERLAY_UPPER = '/data/overlay/upper'
 OVERLAY_WORK = '/data/overlay/work'
+APP_DATA_ROOT = f'{DATA_PARTITION}/app-data'
+APP_CONFIG_ROOT = f'{DATA_PARTITION}/app-config'
+HOME_ROOT = f'{DATA_PARTITION}/home'
 
 # Log sources configuration (static sources)
 LOG_SOURCES = {
@@ -716,31 +720,100 @@ def read_log_file(source_id, lines=100, search=None):
         return {'error': str(e), 'lines': [], 'total': 0}
 
 
-def perform_factory_reset():
-    """Perform factory reset by clearing overlay and app data directories."""
-    errors = []
+def stop_apps_for_factory_reset():
+    """Best-effort stop of running app-manager applications before reset."""
+    stopped = []
+    warnings = []
 
-    # Directories to clear during factory reset
+    result = app_manager_request('GET', '/apps', timeout=10)
+    if result.get('error'):
+        warnings.append(f"Could not query app manager before reset: {result['error']}")
+        return stopped, warnings
+
+    for app_info in result.get('apps', []):
+        app_name = app_info.get('name')
+        if not app_name or app_info.get('status') != 'running':
+            continue
+
+        stop_result = app_manager_request('POST', f'/apps/{app_name}/stop', timeout=45)
+        if stop_result.get('success'):
+            stopped.append(app_name)
+        else:
+            warnings.append(f"Could not stop {app_name}: {stop_result.get('error') or stop_result}")
+
+    return stopped, warnings
+
+
+def clear_directory_contents(dir_path):
+    """Clear contents of an existing directory without deleting the directory."""
+    deleted_entries = 0
+    deleted_bytes = 0
+
+    for item in os.scandir(dir_path):
+        try:
+            if item.is_dir(follow_symlinks=False):
+                deleted_bytes += directory_size(item.path)
+                shutil.rmtree(item.path)
+            else:
+                try:
+                    deleted_bytes += item.stat(follow_symlinks=False).st_size
+                except OSError:
+                    pass
+                os.unlink(item.path)
+            deleted_entries += 1
+        except Exception as e:
+            raise RuntimeError(f"Failed to remove {item.path}: {e}") from e
+
+    return {
+        'path': dir_path,
+        'deleted_entries': deleted_entries,
+        'deleted_bytes': deleted_bytes
+    }
+
+
+def directory_size(path):
+    """Best-effort byte count for reporting reset cleanup impact."""
+    total = 0
+    for root, dirs, files in os.walk(path, topdown=True, followlinks=False):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def perform_factory_reset():
+    """Perform factory reset by clearing overlay, app data/config, and user home."""
+    errors = []
+    stopped_apps, warnings = stop_apps_for_factory_reset()
+    cleared = []
+
+    # Keep this list explicit. Do not clear /data/shared; it may be a user file
+    # exchange area rather than app runtime/config state.
     dirs_to_clear = [
         (OVERLAY_UPPER, "overlay upper"),
         (OVERLAY_WORK, "overlay work"),
-        (f"{DATA_PARTITION}/app-data", "app data"),
-        (f"{DATA_PARTITION}/app-config", "app config"),
+        (APP_DATA_ROOT, "app data"),
+        (APP_CONFIG_ROOT, "app config"),
+        (HOME_ROOT, "home directories"),
     ]
 
     for dir_path, dir_name in dirs_to_clear:
-        if os.path.exists(dir_path):
-            try:
-                for item in os.listdir(dir_path):
-                    path = os.path.join(dir_path, item)
-                    if os.path.isdir(path):
-                        subprocess.run(['rm', '-rf', path], check=True)
-                    else:
-                        os.remove(path)
-            except Exception as e:
-                errors.append(f"Failed to clear {dir_name}: {e}")
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+            result = clear_directory_contents(dir_path)
+            result['name'] = dir_name
+            cleared.append(result)
+        except Exception as e:
+            errors.append(f"Failed to clear {dir_name}: {e}")
 
-    return errors
+    return {
+        'stopped_apps': stopped_apps,
+        'warnings': warnings,
+        'cleared': cleared,
+        'errors': errors
+    }
 
 
 def generate_sse_stream():
@@ -1149,13 +1222,16 @@ def api_download_logs():
 @login_required
 def api_factory_reset():
     """Perform factory reset and reboot."""
-    errors = perform_factory_reset()
+    result = perform_factory_reset()
 
-    if errors:
+    if result['errors']:
         return jsonify({
             'status': 'error',
             'message': 'Factory reset completed with errors',
-            'errors': errors
+            'errors': result['errors'],
+            'warnings': result['warnings'],
+            'stopped_apps': result['stopped_apps'],
+            'cleared': result['cleared']
         }), 500
 
     # Schedule reboot
@@ -1163,7 +1239,10 @@ def api_factory_reset():
         subprocess.Popen(['reboot'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return jsonify({
             'status': 'success',
-            'message': 'Factory reset complete. System will reboot now.'
+            'message': 'Factory reset complete. System will reboot now.',
+            'warnings': result['warnings'],
+            'stopped_apps': result['stopped_apps'],
+            'cleared': result['cleared']
         })
     except Exception as e:
         return jsonify({

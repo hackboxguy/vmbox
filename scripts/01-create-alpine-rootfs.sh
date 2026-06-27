@@ -251,6 +251,26 @@ install_pip_packages() {
     info "Pip packages installed: $packages"
 }
 
+install_source_pip_packages() {
+    # Pip packages with no musl wheel that must be compiled in the rootfs
+    # (e.g. pycurl, which links the system libcurl). Build deps are installed as a
+    # temporary apk virtual group and removed afterwards so the image stays small;
+    # the runtime shared libs they link against remain via ALPINE_BASE_PACKAGES.
+    if [ ${#PIP_SOURCE_PACKAGES[@]} -eq 0 ]; then
+        debug_log "No source pip packages to build"
+        return 0
+    fi
+
+    local packages="${PIP_SOURCE_PACKAGES[*]}"
+    log "Building source pip packages in rootfs: $packages"
+
+    run_in_chroot "$ROOTFS_DIR" "apk add --no-cache --virtual .pip-build-deps ${PIP_SOURCE_BUILD_DEPS}"
+    run_in_chroot "$ROOTFS_DIR" "${PIP_SOURCE_BUILD_ENV} pip3 install --no-cache-dir --break-system-packages $packages"
+    run_in_chroot "$ROOTFS_DIR" "apk del .pip-build-deps"
+
+    info "Source pip packages installed: $packages"
+}
+
 configure_user() {
     log "Creating user: ${DEFAULT_USERNAME}..."
 
@@ -607,6 +627,7 @@ main() {
     # Install packages first (provides ln, sed, and other tools)
     install_base_packages
     install_pip_packages
+    install_source_pip_packages
 
     # Now configure (requires tools from base packages)
     configure_system

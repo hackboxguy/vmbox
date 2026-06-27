@@ -123,6 +123,24 @@ PIP_PACKAGES=(
 # If a musl wheel is unavailable, fail clearly during image build.
 PIP_ONLY_BINARY="${PIP_ONLY_BINARY:-:all:}"
 
+# Pip packages that must be COMPILED from source in the rootfs (no musl wheel).
+# These are built with PIP_SOURCE_BUILD_DEPS installed as a temporary apk virtual
+# group, then those build deps are removed to keep the image small. Runtime shared
+# libraries they link against must remain via ALPINE_BASE_PACKAGES.
+#
+# pycurl: the DNG server (alm.harman.com) sits behind a Cisco Secure Access
+# zero-trust gateway that filters by TLS client fingerprint and only allows the
+# system libcurl fingerprint. python-requests/urllib3 (and curl_cffi) are blocked;
+# pycurl uses the system libcurl, so the webapp uses it as its DNG HTTP transport.
+# Runtime dependency libcurl is provided by the `curl` entry in ALPINE_BASE_PACKAGES.
+PIP_SOURCE_PACKAGES=(
+    "pycurl==7.46.0"
+)
+# apk build deps needed only to compile PIP_SOURCE_PACKAGES (removed after build).
+PIP_SOURCE_BUILD_DEPS="gcc musl-dev python3-dev curl-dev"
+# Env exported during the source build (pycurl must know libcurl's TLS backend).
+PIP_SOURCE_BUILD_ENV="PYCURL_SSL_LIBRARY=openssl"
+
 # Build dependencies (installed for package building, removed after)
 ALPINE_BUILD_PACKAGES=(
     "build-base"

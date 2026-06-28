@@ -546,6 +546,20 @@ export APP_CONFIG_DIR="/data/app-config/${APP_NAME}"
 export APP_LOG_FILE="$LOGFILE"
 export APP_STATIC_DIR="${APP_DIR}/share/www"
 
+# Apply per-app environment from manifest.json. Validate variable names before
+# evaluating jq's shell-escaped assignments; app manifests are build-owned.
+if command -v jq >/dev/null && [ -f "$MANIFEST" ]; then
+    MANIFEST_ENV=$(jq -r '
+        .env // {}
+        | to_entries[]
+        | select(.key | test("^[A-Za-z_][A-Za-z0-9_]*$"))
+        | "export \(.key)=\(.value | tostring | @sh)"
+    ' "$MANIFEST")
+    if [ -n "$MANIFEST_ENV" ]; then
+        eval "$MANIFEST_ENV"
+    fi
+fi
+
 # Create directories
 mkdir -p "$APP_DATA_DIR" "$APP_CONFIG_DIR" /run/app /var/log/app
 

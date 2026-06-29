@@ -320,7 +320,7 @@ def login_required(f):
         if 'username' not in session:
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
-            return redirect(url_for('login'))
+            return redirect(url_for('login', next=_safe_next_path(request.full_path)))
         # Check session expiry
         if 'login_time' in session:
             login_time = datetime.fromisoformat(session['login_time'])
@@ -328,9 +328,21 @@ def login_required(f):
                 session.clear()
                 if request.is_json or request.path.startswith('/api/'):
                     return jsonify({'error': 'Session expired'}), 401
-                return redirect(url_for('login'))
+                return redirect(url_for('login', next=_safe_next_path(request.full_path)))
         return f(*args, **kwargs)
     return decorated_function
+
+
+def _safe_next_path(next_path):
+    """Keep login return targets local to this VMBOX system-management host."""
+    next_path = (next_path or '').strip()
+    if next_path.endswith('?'):
+        next_path = next_path[:-1]
+    if not next_path or not next_path.startswith('/') or next_path.startswith('//'):
+        return ''
+    if next_path.startswith('/login'):
+        return ''
+    return next_path
 
 
 def read_version_info():
@@ -843,25 +855,35 @@ def generate_sse_stream():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle user login."""
+    next_path = _safe_next_path(request.values.get('next'))
+
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         client_ip = request.remote_addr
 
         if not username or not password:
-            return render_template('login.html', error='Username and password required')
+            return render_template(
+                'login.html',
+                error='Username and password required',
+                next=next_path
+            )
 
         if verify_shadow_password(username, password):
             session.permanent = True
             session['username'] = username
             session['login_time'] = datetime.now().isoformat()
             auth_logger.info(f"Successful login for user '{username}' from {client_ip}")
-            return redirect(url_for('index'))
+            return redirect(next_path or url_for('index'))
         else:
             auth_logger.warning(f"Failed login attempt for user '{username}' from {client_ip}")
-            return render_template('login.html', error='Invalid username or password')
+            return render_template(
+                'login.html',
+                error='Invalid username or password',
+                next=next_path
+            )
 
-    return render_template('login.html')
+    return render_template('login.html', next=next_path)
 
 
 @app.route('/logout')

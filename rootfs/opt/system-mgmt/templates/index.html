@@ -1673,25 +1673,10 @@
         }
 
         async function openAppWithAuth(appName, port) {
-            // Get a token for the app and open in new tab
-            try {
-                const response = await fetch('/api/session/token', { method: 'POST' });
-                const data = await response.json();
-
-                if (data.token) {
-                    // Open app on its direct port with token
-                    const host = window.location.hostname;
-                    const url = `http://${host}:${port}/?token=${data.token}`;
-                    window.open(url, '_blank');
-                } else {
-                    // Fallback to proxy if token generation fails
-                    window.open(`/app/${appName}/`, '_blank');
-                }
-            } catch (error) {
-                console.error('Failed to get token:', error);
-                // Fallback to proxy
-                window.open(`/app/${appName}/`, '_blank');
-            }
+            // Normal HTTP app access goes through the authenticated reverse proxy.
+            // Direct-port token auth remains available for development and special
+            // WebSocket-style clients, but is not the default dashboard path.
+            window.open(`/app/${encodeURIComponent(appName)}/`, '_blank');
         }
 
         // Initialize

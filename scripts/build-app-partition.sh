@@ -197,6 +197,55 @@ fetch_source() {
     fi
 }
 
+# Capture DNG webapp metadata from the original checkout before building in the
+# chroot. Local source copies intentionally omit hidden files such as .git, so
+# CMake would otherwise fall back to the base version.
+capture_dng_webapp_build_metadata() {
+    local name="$1"
+    local repo="$2"
+    local version="$3"
+    local dest="${ROOTFS_DIR}${BUILD_DIR}/src-${name}"
+    local env_file="${dest}/.vmbox-build-env"
+
+    [ "$name" = "dng-toolkit-webapp" ] || return 0
+    rm -f "$env_file"
+
+    if [[ "$repo" != file://* ]]; then
+        return 0
+    fi
+
+    local src_path="${repo#file://}"
+    if [ ! -d "${src_path}/.git" ] || ! command -v git >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local git_ref="HEAD"
+    if [ "$version" != "HEAD" ]; then
+        git_ref="$version"
+    fi
+
+    local commit_count
+    local commit_sha
+    commit_count="$(git -c safe.directory="$src_path" -C "$src_path" rev-list --count "$git_ref" 2>/dev/null || true)"
+    commit_sha="$(git -c safe.directory="$src_path" -C "$src_path" rev-parse --short "$git_ref" 2>/dev/null || true)"
+
+    if [[ ! "$commit_count" =~ ^[0-9]+$ ]]; then
+        warn "Could not capture DNG webapp commit count from: $src_path"
+        return 0
+    fi
+
+    {
+        printf ': "${DNG_WEBAPP_BUILD_COUNT:=%s}"\n' "$commit_count"
+        printf 'export DNG_WEBAPP_BUILD_COUNT\n'
+        if [[ "$commit_sha" =~ ^[0-9A-Za-z._-]+$ ]]; then
+            printf ': "${DNG_WEBAPP_BUILD_SHA:=%s}"\n' "$commit_sha"
+            printf 'export DNG_WEBAPP_BUILD_SHA\n'
+        fi
+    } > "$env_file"
+
+    info "Captured DNG webapp build metadata: count=${commit_count} sha=${commit_sha:-unknown}"
+}
+
 # Install build dependencies in chroot
 install_build_deps() {
     local deps="$1"
@@ -470,6 +519,8 @@ build_package() {
     local name="$1"
     local cmake_options="$2"
     local install_prefix="/app/${name}"
+    local build_env_file="${ROOTFS_DIR}${BUILD_DIR}/src-${name}/.vmbox-build-env"
+    local build_env_cmd=""
 
     log "Building package: $name"
 
@@ -479,11 +530,16 @@ build_package() {
         cmake_opts="${cmake_options//,/ }"
     fi
 
+    if [ -f "$build_env_file" ]; then
+        build_env_cmd=". '${BUILD_DIR}/src-${name}/.vmbox-build-env';"
+    fi
+
     # Build in chroot
     run_in_chroot "$ROOTFS_DIR" "
         cd '${BUILD_DIR}/src-${name}'
         mkdir -p _build
         cd _build
+        ${build_env_cmd}
         cmake .. -DCMAKE_INSTALL_PREFIX='${install_prefix}' ${cmake_opts}
         make -j\$(nproc)
         make install DESTDIR='${BUILD_DIR}/install'
@@ -731,6 +787,7 @@ build_all_packages() {
 
         # Fetch source
         fetch_source "$PKG_NAME" "$PKG_REPO" "$PKG_VERSION"
+        capture_dng_webapp_build_metadata "$PKG_NAME" "$PKG_REPO" "$PKG_VERSION"
 
         # Install build dependencies
         install_build_deps "$PKG_BUILD_DEPS"

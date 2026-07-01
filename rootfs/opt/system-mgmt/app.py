@@ -52,10 +52,11 @@ import glob as glob_module
 from flask import Flask, jsonify, render_template, request, Response, session, redirect, url_for, send_file
 
 app = Flask(__name__)
+SESSION_TIMEOUT = timedelta(hours=4)
 
 # Session configuration
 app.secret_key = os.urandom(24)  # Generate random secret key on startup
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
+app.config['PERMANENT_SESSION_LIFETIME'] = SESSION_TIMEOUT
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -324,7 +325,7 @@ def login_required(f):
         # Check session expiry
         if 'login_time' in session:
             login_time = datetime.fromisoformat(session['login_time'])
-            if datetime.now() - login_time > timedelta(minutes=30):
+            if datetime.now() - login_time > SESSION_TIMEOUT:
                 session.clear()
                 if request.is_json or request.path.startswith('/api/'):
                     return jsonify({'error': 'Session expired'}), 401
@@ -911,7 +912,7 @@ def api_session_check():
     # Check session expiry
     if 'login_time' in session:
         login_time = datetime.fromisoformat(session['login_time'])
-        if datetime.now() - login_time > timedelta(minutes=30):
+        if datetime.now() - login_time > SESSION_TIMEOUT:
             return jsonify({'valid': False, 'reason': 'expired'})
 
     return jsonify({

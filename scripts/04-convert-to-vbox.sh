@@ -30,6 +30,7 @@ EXPORT_OVA=false
 USB_MODE=""           # off, 1, 2, or 3 (USB controller version)
 USB_STORAGE_IDS=""    # Comma-separated USB storage vendor IDs (e.g., 8564,1234)
 ENABLE_PCAN=false     # Enable PCAN-USB adapter filter (VID 0c72)
+ENABLE_JETSON=false   # Enable NVIDIA Jetson recovery-mode filter (VID 0955)
 HOST_SERIAL=""        # Host serial port to pass through (e.g., /dev/ttyS0, COM1)
 
 # Port forwarding (with defaults in case config.sh doesn't define them)
@@ -72,6 +73,8 @@ Optional Arguments:
                         Example: --usbstorageid=8564,0781,1307
                         Common IDs: 8564 (Transcend), 0781 (SanDisk), 1307 (USBest)
   --pcan                Enable PCAN-USB adapter filter (VID 0c72, peak_usb driver)
+  --jetson              Enable NVIDIA Jetson recovery-mode filter (VID 0955, any PID).
+                        Needed to flash a Jetson from inside the VM. Use with --usb=3.
   --hostserial=PORT     Pass through host serial port to VM COM1
                         Linux: /dev/ttyS0, /dev/ttyS1, etc.
                         Windows: COM1, COM2, etc.
@@ -96,6 +99,8 @@ USB Devices (auto-attached with --usb):
   CAN Bus Adapters:
     CANable (gs_usb)      - VID 1d50
     PCAN-USB (peak_usb)   - VID 0c72 (requires --pcan)
+  NVIDIA Jetson:
+    Jetson recovery (APX) - VID 0955 (requires --jetson)
 
 Examples:
   $0 --input=./alpine-vbox.raw --vmname=alpine-demo
@@ -126,6 +131,7 @@ parse_arguments() {
             --usb=*)        USB_MODE="${arg#*=}" ;;
             --usbstorageid=*) USB_STORAGE_IDS="${arg#*=}" ;;
             --pcan)         ENABLE_PCAN=true ;;
+            --jetson)       ENABLE_JETSON=true ;;
             --hostserial=*) HOST_SERIAL="${arg#*=}" ;;
             --export-ova)   EXPORT_OVA=true ;;
             --force)        FORCE=true ;;
@@ -389,19 +395,22 @@ configure_usb() {
 
     log "Configuring USB passthrough..."
 
-    # Check if Extension Pack is installed (needed for USB 2.0/3.0)
+    # Check if Extension Pack is installed (needed for USB 2.0/3.0).
+    # VirtualBox 7.1 renamed it "Oracle VM VirtualBox Extension Pack" -> "Oracle VirtualBox
+    # Extension Pack", so match both or the check false-negatives on every modern VirtualBox.
     local extpack_installed=false
-    if VBoxManage list extpacks 2>/dev/null | grep -q "Oracle VM VirtualBox Extension Pack"; then
+    if VBoxManage list extpacks 2>/dev/null | grep -qE "Oracle (VM )?VirtualBox Extension Pack"; then
         extpack_installed=true
     fi
 
-    # Warn if USB 2.0/3.0 requested without Extension Pack
+    # USB 2.0/3.0 without the Extension Pack is fatal, not a fallback. Silently dropping to
+    # OHCI produces a VM that looks configured but cannot sustain a high-speed transfer -- a
+    # Jetson flash then fails halfway with an unrelated-looking error.
     if [ "$USB_MODE" = "2" ] || [ "$USB_MODE" = "3" ]; then
         if [ "$extpack_installed" = "false" ]; then
-            warn "USB $USB_MODE.0 requires VirtualBox Extension Pack (not installed)"
-            warn "Falling back to USB 1.1 (OHCI)"
-            warn "To use USB 2.0/3.0: Install Extension Pack from virtualbox.org"
-            USB_MODE="1"
+            error "USB ${USB_MODE}.0 requires the VirtualBox Extension Pack, which is not installed.
+       Install it (version-matched to $(VBoxManage --version 2>/dev/null | sed 's/[_r].*//')) from
+       https://www.virtualbox.org/wiki/Downloads and re-run, or pass --usb=1 to accept OHCI."
         fi
     fi
 
@@ -487,8 +496,24 @@ configure_usb() {
         --active yes &>/dev/null || true
     info "  Filter: CANable (VID 1d50)"
 
-    # PCAN-USB adapter (peak_usb driver) - VID 0c72 (opt-in via --pcan)
     local next_filter=7
+
+    # NVIDIA Jetson in recovery mode (APX / RCM) - VID 0955 (opt-in via --jetson)
+    #
+    # Match on vendor ID ONLY, with a blank product ID. The Jetson re-enumerates partway
+    # through a flash: it starts as APX (RCM) and then the flashing kernel comes up with a
+    # DIFFERENT product ID. A PID-specific filter stops matching at that moment, VirtualBox
+    # hands the device back to the host, and the flash dies mid-write.
+    if [ "$ENABLE_JETSON" = "true" ]; then
+        VBoxManage usbfilter add $next_filter --target "$VM_NAME" \
+            --name "NVIDIA Jetson (APX/RCM)" \
+            --vendorid 0955 \
+            --active yes &>/dev/null || true
+        info "  Filter: NVIDIA Jetson recovery (VID 0955, any PID)"
+        ((next_filter++))
+    fi
+
+    # PCAN-USB adapter (peak_usb driver) - VID 0c72 (opt-in via --pcan)
     if [ "$ENABLE_PCAN" = "true" ]; then
         VBoxManage usbfilter add $next_filter --target "$VM_NAME" \
             --name "PCAN-USB" \

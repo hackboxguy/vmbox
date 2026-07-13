@@ -692,12 +692,27 @@ EOF
         warn "No app directory found, creating empty APP partition"
     fi
 
-    # Create SquashFS image from app directory
-    log "Creating APP SquashFS..."
+    # Create SquashFS image from app directory.
+    #
+    # Compressor is selectable because the default (xz) is unusable for appliances that
+    # carry a multi-GB binary payload: xz on several GB takes tens of minutes and a lot of
+    # RAM, and -Xbcj x86 is pointless on a disk image (it filters x86 instruction streams).
+    # zstd gives a comparable ratio on that kind of data at a fraction of the time.
+    local comp_args
+    case "${APP_SQUASHFS_COMP:-xz}" in
+        zstd)
+            comp_args=(-comp zstd -Xcompression-level "${APP_SQUASHFS_LEVEL:-19}" -b 1M)
+            ;;
+        xz)
+            comp_args=(-comp xz -b 256K -Xbcj x86)
+            ;;
+        *)
+            comp_args=(-comp "${APP_SQUASHFS_COMP}")
+            ;;
+    esac
+    log "Creating APP SquashFS (comp=${APP_SQUASHFS_COMP:-xz})..."
     mksquashfs "$app_src" "$app_squashfs" \
-        -comp xz \
-        -b 256K \
-        -Xbcj x86 \
+        "${comp_args[@]}" \
         -noappend \
         -no-progress
 

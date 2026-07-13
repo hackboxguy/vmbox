@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""
+dms-deploy-server - the one screen the customer sees.
+
+Serves a single page on :8080. It shows whether an AGX board is in recovery mode, flashes the
+baked DMS image when the user clicks the button, and streams the flash log back.
+
+Deliberately thin: it shells out to /app/dms-deploy/bin/jetson-flash.sh, which is the exact
+path validated on hardware. This process must never become a second implementation of the
+flash -- if the UI is broken, `jetson-flash.sh` alone must still work over SSH.
+
+Python 3 standard library only (the Alpine rootfs has python3 and nothing else installed).
+"""
+import json
+import os
+import re
+import subprocess
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
+
+APP_DIR = "/app/dms-deploy"
+WWW = f"{APP_DIR}/share/www"
+FLASH_SH = f"{APP_DIR}/bin/jetson-flash.sh"
+STATE_DIR = "/data/app-data/dms-deploy"
+LOG_FILE = f"{STATE_DIR}/flash.log"
+PORT = 8080
+
+# The board's USB vendor ID in recovery mode. Detection is `lsusb`-only, ON PURPOSE:
+# the Tegra bootrom's RCM handshake is ONE-SHOT, so probing with tegrarcm (even a read-only
+# --uid) consumes the session and the subsequent flash fails. Never "just check" the board.
+JETSON_VID = "0955"
+
+_lock = threading.Lock()
+_flash = {"state": "idle", "started": 0.0, "ended": 0.0, "rc": None}
+
+
+def board_present() -> bool:
+    try:
+        out = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return False
+    return f"{JETSON_VID}:" in out
+
+
+def image_version() -> str:
+    try:
+        with open(f"{APP_DIR}/IMAGE_VERSION") as f:
+            return f.read().strip()
+    except OSError:
+        return "unknown"
+
+
+# Coarse progress, derived from what tegraflash actually prints. Anything not matched here
+# leaves the phase alone rather than guessing.
+PHASES = [
+    (re.compile(r"Entering RCM boot|rcm boot", re.I), "Board accepted the recovery handshake"),
+    (re.compile(r"Sending bct|sending bootloader", re.I), "Sending bootloader"),
+    (re.compile(r"Erasing", re.I), "Erasing eMMC"),
+    (re.compile(r"Writing partition APP with system", re.I), "Writing the DMS image (this is the long one, ~25 min)"),
+    (re.compile(r"Flashing completed", re.I), "Flash complete"),
+]
+
+
+def current_phase() -> str:
+    phase = "Starting"
+    try:
+        with open(LOG_FILE, "r", errors="replace") as f:
+            for line in f:
+                for pat, name in PHASES:
+                    if pat.search(line):
+                        phase = name
+    except OSError:
+        pass
+    return phase
+
+
+def run_flash():
+    """Run jetson-flash.sh, appending everything to LOG_FILE. Exactly one invocation."""
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(LOG_FILE, "wb", buffering=0) as log:
+        try:
+            proc = subprocess.Popen(
+                ["/bin/sh", FLASH_SH],
+                stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+            )
+            rc = proc.wait()
+        except Exception as e:
+            log.write(f"\nfailed to launch {FLASH_SH}: {e}\n".encode())
+            rc = 127
+    with _lock:
+        _flash["rc"] = rc
+        _flash["ended"] = time.time()
+        _flash["state"] = "done" if rc == 0 else "failed"
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *_args):
+        pass  # the access log is noise; the flash log is what matters
+
+    def _send(self, code, body: bytes, ctype="application/json"):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, code, obj):
+        self._send(code, json.dumps(obj).encode())
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        if path in ("/", "/index.html"):
+            try:
+                with open(f"{WWW}/index.html", "rb") as f:
+                    self._send(200, f.read(), "text/html; charset=utf-8")
+            except OSError:
+                self._send(500, b"index.html missing", "text/plain")
+        elif path == "/health":
+            self._send(200, b"ok", "text/plain")
+        elif path == "/api/state":
+            with _lock:
+                st = dict(_flash)
+            running = st["state"] == "flashing"
+            self._json(200, {
+                "version": image_version(),
+                # While flashing, the board legitimately drops off VID 0955 (it re-enumerates
+                # as the flashing kernel). Reporting "board gone" then would be alarming and
+                # wrong, so only report presence when we are not flashing.
+                "board": (None if running else ("recovery" if board_present() else "absent")),
+                "state": st["state"],
+                "phase": current_phase() if st["state"] != "idle" else "",
+                "elapsed": int((st["ended"] or time.time()) - st["started"]) if st["started"] else 0,
+                "rc": st["rc"],
+            })
+        elif path == "/api/log":
+            offset = 0
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                offset = max(0, int(q.get("offset", ["0"])[0]))
+            except ValueError:
+                pass
+            data = b""
+            try:
+                with open(LOG_FILE, "rb") as f:
+                    f.seek(0, os.SEEK_END)
+                    size = f.tell()
+                    if offset > size:      # log was truncated by a new run
+                        offset = 0
+                    f.seek(offset)
+                    data = f.read()
+            except OSError:
+                size = 0
+            self._json(200, {"offset": offset + len(data),
+                             "data": data.decode("utf-8", errors="replace")})
+        else:
+            self._send(404, b"not found", "text/plain")
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/api/flash":
+            self._send(404, b"not found", "text/plain")
+            return
+        with _lock:
+            if _flash["state"] == "flashing":
+                self._json(409, {"error": "a flash is already running"})
+                return
+            if not board_present():
+                self._json(412, {"error": "no board in recovery mode"})
+                return
+            # Claim the slot INSIDE the lock, before starting the thread. Two clicks that land
+            # together must not both launch a flash -- double-flashing real hardware is exactly
+            # the mistake this guards against.
+            _flash.update({"state": "flashing", "started": time.time(), "ended": 0.0, "rc": None})
+        threading.Thread(target=run_flash, daemon=True).start()
+        self._json(202, {"state": "flashing"})
+
+
+if __name__ == "__main__":
+    os.makedirs(STATE_DIR, exist_ok=True)
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

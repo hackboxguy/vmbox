@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deploy DMS image</title>
+<style>
+  :root { color-scheme: light dark; --ok:#1a7f37; --bad:#b3261e; --wait:#8a6d00; --line:#d0d7de; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0;
+         padding: 2rem 1rem; display: flex; justify-content: center; }
+  main { width: 100%; max-width: 46rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  .ver { color: #666; font-size: .9rem; margin-bottom: 1.5rem; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; }
+  .board { display: flex; align-items: center; gap: .6rem; font-size: 1.05rem; }
+  .dot { width: .8rem; height: .8rem; border-radius: 50%; background: #bbb; flex: none; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.wait { background: var(--wait); }
+  .hint { color: #666; font-size: .9rem; margin: .75rem 0 0; }
+  ol { margin: .5rem 0 0; padding-left: 1.2rem; color: #666; font-size: .9rem; line-height: 1.6; }
+  button { font-size: 1.05rem; font-weight: 600; padding: .85rem 1.5rem; border-radius: 8px;
+           border: 0; background: var(--ok); color: #fff; cursor: pointer; width: 100%; }
+  button:disabled { background: #ccc; color: #777; cursor: not-allowed; }
+  #phase { margin-top: .9rem; font-size: .95rem; }
+  #elapsed { color: #666; font-size: .85rem; }
+  pre { background: #0d1117; color: #c9d1d9; border-radius: 8px; padding: .9rem;
+        height: 17rem; overflow: auto; font-size: .78rem; line-height: 1.45; margin: 0;
+        white-space: pre-wrap; word-break: break-all; }
+  .banner { padding: 1rem; border-radius: 8px; font-weight: 600; margin-bottom: 1rem; }
+  .banner.ok  { background: #e6f4ea; color: var(--ok); border: 1px solid var(--ok); }
+  .banner.bad { background: #fce8e6; color: var(--bad); border: 1px solid var(--bad); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Deploy DMS image</h1>
+  <div class="ver">Image version <b id="version">…</b></div>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <div class="card">
+    <div class="board"><span id="dot" class="dot"></span><span id="boardtxt">Looking for a board…</span></div>
+    <div id="recovery-help" class="hidden">
+      <p class="hint">To put the board into recovery mode:</p>
+      <ol>
+        <li>Power the board off.</li>
+        <li>Connect the board's USB-C recovery port to this PC.</li>
+        <li>Hold the <b>FORCE RECOVERY</b> button, tap <b>RESET</b>, then release RECOVERY.</li>
+      </ol>
+      <p class="hint">The board will show up here within a few seconds. Nothing appears on its screen in recovery mode — that is normal.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <button id="go" disabled>Deploy DMS image</button>
+    <div id="phase"></div>
+    <div id="elapsed"></div>
+  </div>
+
+  <div class="card">
+    <pre id="log">Nothing has run yet.</pre>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let offset = 0, state = "idle";
+
+function mmss(s) {
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+async function poll() {
+  try {
+    const s = await (await fetch("/api/state")).json();
+    $("version").textContent = s.version;
+    state = s.state;
+
+    const flashing = state === "flashing";
+    if (flashing) {
+      $("dot").className = "dot wait";
+      $("boardtxt").textContent = "Flashing — do not unplug the board or close this window";
+    } else if (s.board === "recovery") {
+      $("dot").className = "dot ok";
+      $("boardtxt").textContent = "Board detected in recovery mode";
+    } else {
+      $("dot").className = "dot bad";
+      $("boardtxt").textContent = "No board in recovery mode";
+    }
+    $("recovery-help").classList.toggle("hidden", flashing || s.board === "recovery");
+
+    // Re-arm after a failure so the user can retry; a success needs no second click.
+    $("go").disabled = flashing || s.board !== "recovery";
+    $("go").textContent = state === "failed" ? "Retry deployment" : "Deploy DMS image";
+
+    $("phase").textContent = flashing ? s.phase : "";
+    $("elapsed").textContent = s.elapsed ? `elapsed ${mmss(s.elapsed)}` : "";
+
+    const b = $("banner");
+    if (state === "done") {
+      b.className = "banner ok";
+      b.textContent = "Deployment complete. Power-cycle the board — it will boot into the DMS system.";
+    } else if (state === "failed") {
+      b.className = "banner bad";
+      b.textContent = `Deployment failed (exit code ${s.rc}). The log below shows what happened.`;
+    } else {
+      b.className = "banner hidden";
+    }
+
+    const l = await (await fetch(`/api/log?offset=${offset}`)).json();
+    if (l.data) {
+      if (offset === 0) $("log").textContent = "";
+      offset = l.offset;
+      const pre = $("log");
+      // Only stick to the bottom if the user has not scrolled up to read something.
+      const stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 40;
+      pre.textContent += l.data;
+      if (stick) pre.scrollTop = pre.scrollHeight;
+    }
+  } catch (e) {
+    $("dot").className = "dot bad";
+    $("boardtxt").textContent = "Lost contact with the appliance";
+  }
+}
+
+$("go").onclick = async () => {
+  if (state === "flashing") return;
+  $("go").disabled = true;                 // no double-click; flashing twice is destructive
+  $("log").textContent = "";
+  offset = 0;
+  const r = await fetch("/api/flash", { method: "POST" });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({ error: "could not start" }));
+    $("banner").className = "banner bad";
+    $("banner").textContent = e.error;
+  }
+  poll();
+};
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

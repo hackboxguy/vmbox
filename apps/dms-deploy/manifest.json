@@ -1,0 +1,34 @@
+{
+  "name": "dms-deploy",
+  "version": "1.0.0",
+  "description": "Deploy the DMS image to an AGX Xavier in recovery mode",
+  "type": "webapp",
+  "port": 8080,
+  "url": "/",
+
+  "health": {
+    "type": "http",
+    "endpoint": "/health",
+    "port": 8080,
+    "interval": 30,
+    "timeout": 5
+  },
+
+  "startup": {
+    "command": "/app/dms-deploy/bin/dms-deploy-server",
+    "args": [],
+    "working_dir": "/app/dms-deploy",
+    "priority": 80,
+    "depends_on": []
+  },
+
+  "shutdown": {
+    "timeout": 10,
+    "signal": "SIGTERM"
+  },
+
+  "env": {
+    "APP_DATA_DIR": "/data/app-data/dms-deploy",
+    "APP_LOG_FILE": "/var/log/app/dms-deploy.log"
+  }
+}

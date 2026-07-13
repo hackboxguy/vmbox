@@ -11,7 +11,14 @@
 #      directly -- NOT built from a git repo via packages-*.txt -- so the blob never passes
 #      through the Alpine build chroot.
 #   2. APP SquashFS uses zstd, not the default xz. xz on several GB takes tens of minutes.
-#   3. USB 3.0 (xHCI) + a VID 0955 filter, so the VM can capture the Jetson in recovery mode.
+#   3. USB 2.0 (EHCI) + a VID 0955 filter, so the VM can capture the Jetson in recovery mode.
+#      EHCI, not xHCI, ON PURPOSE. The board resets back into RCM partway through the flash and
+#      re-enumerates; VirtualBox must re-capture it. With xHCI that re-capture is reliable on a
+#      Linux host but FAILS on Windows -- tegrarcm then blocks forever on a dead USB device
+#      ("BootRom is not running"). The board in recovery is a USB 2.0 device anyway, and the
+#      flash is eMMC-bound (~7.5 MB/s), nowhere near even USB 2.0's ceiling, so EHCI costs
+#      nothing. NOTE the guest controller type is independent of the physical host port: a board
+#      on a USB 3 port or a USB-C dock still attaches fine to a guest EHCI controller.
 #      This REQUIRES the VirtualBox Extension Pack on the host.
 #   4. Sizes and the free-space gate are scaled for the payload.
 #
@@ -148,7 +155,7 @@ convert_args=(
     --vmname="$VM_NAME"
     --appdir="$PAYLOAD_DIR"
     --memory="$VM_MEMORY"
-    --usb=3
+    --usb=2
     --jetson
     --force
 )

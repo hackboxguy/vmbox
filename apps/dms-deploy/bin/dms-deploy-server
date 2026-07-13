@@ -14,6 +14,7 @@ Python 3 standard library only (the Alpine rootfs has python3 and nothing else i
 import json
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -25,6 +26,7 @@ WWW = f"{APP_DIR}/share/www"
 FLASH_SH = f"{APP_DIR}/bin/jetson-flash.sh"
 STATE_DIR = "/data/app-data/dms-deploy"
 LOG_FILE = f"{STATE_DIR}/flash.log"
+PREV_LOG = f"{STATE_DIR}/flash.log.prev"
 PORT = 8080
 
 # The board's USB vendor ID in recovery mode. Detection is `lsusb`-only, ON PURPOSE:
@@ -32,8 +34,23 @@ PORT = 8080
 # --uid) consumes the session and the subsequent flash fails. Never "just check" the board.
 JETSON_VID = "0955"
 
+# Stall detection, and why the two limits differ by so much.
+#
+# MEASURED on a healthy flash: once tegraflash reaches "Writing partition APP with system.img"
+# it prints its whole progress bar up front and then writes the 12 GB image in SILENCE for
+# ~1550 s. So "no output for 5 minutes" would abort a perfectly good flash mid-write.
+#
+# Before that point the chain is chatty -- it never goes quiet for more than a few seconds.
+# Both observed real-world hangs died there: tegrarcm_v2 blocked on a USB read that never
+# returned ("BootRom is not running") and sat there, silent, for over half an hour, with the
+# UI happily reporting "flashing". That is the case this catches.
+STALL_BEFORE_WRITE = 240       # 4 min of silence before the write begins = the board is gone
+STALL_DURING_WRITE = 3600      # 60 min: generous; the write itself is legitimately silent
+WRITE_MARKER = "Writing partition APP with system"
+
 _lock = threading.Lock()
-_flash = {"state": "idle", "started": 0.0, "ended": 0.0, "rc": None}
+_flash = {"state": "idle", "started": 0.0, "ended": 0.0, "rc": None, "reason": ""}
+_proc = None
 
 
 def board_present() -> bool:
@@ -52,47 +69,114 @@ def image_version() -> str:
         return "unknown"
 
 
-# Coarse progress, derived from what tegraflash actually prints. Anything not matched here
-# leaves the phase alone rather than guessing.
+def read_log() -> str:
+    try:
+        with open(LOG_FILE, "r", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+# Coarse progress, derived from what tegraflash actually prints.
 PHASES = [
-    (re.compile(r"Entering RCM boot|rcm boot", re.I), "Board accepted the recovery handshake"),
-    (re.compile(r"Sending bct|sending bootloader", re.I), "Sending bootloader"),
+    (re.compile(r"Boot Rom communication completed|RCM version", re.I), "Board accepted the recovery handshake"),
+    (re.compile(r"Sending BCTs|Sending bct", re.I), "Sending bootloader"),
     (re.compile(r"Erasing", re.I), "Erasing eMMC"),
-    (re.compile(r"Writing partition APP with system", re.I), "Writing the DMS image (this is the long one, ~25 min)"),
+    (re.compile(WRITE_MARKER, re.I), "Writing the DMS image (~25 min, and the log stays quiet while it does)"),
     (re.compile(r"Flashing completed", re.I), "Flash complete"),
 ]
 
 
-def current_phase() -> str:
+def current_phase(log: str) -> str:
     phase = "Starting"
-    try:
-        with open(LOG_FILE, "r", errors="replace") as f:
-            for line in f:
-                for pat, name in PHASES:
-                    if pat.search(line):
-                        phase = name
-    except OSError:
-        pass
+    for line in log.splitlines():
+        for pat, name in PHASES:
+            if pat.search(line):
+                phase = name
     return phase
+
+
+def fail(reason: str):
+    with _lock:
+        _flash["state"] = "failed"
+        _flash["ended"] = time.time()
+        _flash["reason"] = reason
+
+
+def watchdog():
+    """Kill a flash that has stopped making progress, and say so in plain language.
+
+    Without this the UI reports "flashing" forever while tegrarcm_v2 blocks on a dead USB
+    device -- which is exactly what happened twice on a Windows host. A field engineer has no
+    way to tell that apart from a slow flash.
+    """
+    last_size, last_change = -1, time.time()
+    while True:
+        time.sleep(10)
+        with _lock:
+            if _flash["state"] != "flashing":
+                return
+        try:
+            size = os.path.getsize(LOG_FILE)
+        except OSError:
+            size = 0
+        if size != last_size:
+            last_size, last_change = size, time.time()
+            continue
+
+        writing = WRITE_MARKER.lower() in read_log().lower()
+        limit = STALL_DURING_WRITE if writing else STALL_BEFORE_WRITE
+        if time.time() - last_change < limit:
+            continue
+
+        # Stalled. Kill the whole process group -- flash.sh spawns tegraflash/tegrarcm children.
+        with _lock:
+            p = _proc
+        if p and p.poll() is None:
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+            except OSError:
+                pass
+        if writing:
+            fail("The image write stopped making progress. Power-cycle the board back into "
+                 "recovery mode and try again.")
+        else:
+            fail("The board stopped responding before the image write began — it is no longer "
+                 "reachable over USB. Power-cycle the board (remove power, then FORCE RECOVERY "
+                 "+ RESET) and try again. If this repeats, connect the board directly to the PC "
+                 "rather than through a hub or docking station.")
+        return
 
 
 def run_flash():
     """Run jetson-flash.sh, appending everything to LOG_FILE. Exactly one invocation."""
+    global _proc
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(LOG_FILE, "wb", buffering=0) as log:
         try:
-            proc = subprocess.Popen(
+            # start_new_session: gives the flash its own process group, so the watchdog and the
+            # Cancel button can kill tegraflash's children too, not just the shell.
+            p = subprocess.Popen(
                 ["/bin/sh", FLASH_SH],
                 stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                start_new_session=True,
             )
-            rc = proc.wait()
+            with _lock:
+                _proc = p
+            rc = p.wait()
         except Exception as e:
             log.write(f"\nfailed to launch {FLASH_SH}: {e}\n".encode())
             rc = 127
+
     with _lock:
+        # The watchdog or Cancel may have already killed it and set a reason; don't overwrite.
+        if _flash["state"] != "flashing":
+            return
         _flash["rc"] = rc
         _flash["ended"] = time.time()
         _flash["state"] = "done" if rc == 0 else "failed"
+        if rc != 0:
+            _flash["reason"] = f"The flash failed (exit code {rc}). See the log below."
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -133,17 +217,17 @@ class Handler(BaseHTTPRequestHandler):
                 # wrong, so only report presence when we are not flashing.
                 "board": (None if running else ("recovery" if board_present() else "absent")),
                 "state": st["state"],
-                "phase": current_phase() if st["state"] != "idle" else "",
+                "phase": current_phase(read_log()) if st["state"] != "idle" else "",
                 "elapsed": int((st["ended"] or time.time()) - st["started"]) if st["started"] else 0,
                 "rc": st["rc"],
+                "reason": st["reason"],
             })
         elif path == "/api/log":
-            offset = 0
             q = parse_qs(urlparse(self.path).query)
             try:
                 offset = max(0, int(q.get("offset", ["0"])[0]))
             except ValueError:
-                pass
+                offset = 0
             data = b""
             try:
                 with open(LOG_FILE, "rb") as f:
@@ -154,31 +238,58 @@ class Handler(BaseHTTPRequestHandler):
                     f.seek(offset)
                     data = f.read()
             except OSError:
-                size = 0
+                pass
             self._json(200, {"offset": offset + len(data),
                              "data": data.decode("utf-8", errors="replace")})
         else:
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/flash":
+        path = urlparse(self.path).path
+        if path == "/api/flash":
+            with _lock:
+                if _flash["state"] == "flashing":
+                    self._json(409, {"error": "a flash is already running"})
+                    return
+                if not board_present():
+                    self._json(412, {"error": "no board in recovery mode"})
+                    return
+                # Claim the slot INSIDE the lock, before starting the thread. Two clicks that
+                # land together must not both launch a flash -- double-flashing real hardware
+                # is exactly the mistake this guards against.
+                _flash.update({"state": "flashing", "started": time.time(), "ended": 0.0,
+                               "rc": None, "reason": ""})
+            threading.Thread(target=run_flash, daemon=True).start()
+            threading.Thread(target=watchdog, daemon=True).start()
+            self._json(202, {"state": "flashing"})
+
+        elif path == "/api/cancel":
+            with _lock:
+                if _flash["state"] != "flashing":
+                    self._json(409, {"error": "nothing is running"})
+                    return
+                p = _proc
+            if p and p.poll() is None:
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                except OSError:
+                    pass
+            fail("Cancelled. The board was interrupted mid-flash — power-cycle it back into "
+                 "recovery mode before trying again.")
+            self._json(200, {"state": "failed"})
+        else:
             self._send(404, b"not found", "text/plain")
-            return
-        with _lock:
-            if _flash["state"] == "flashing":
-                self._json(409, {"error": "a flash is already running"})
-                return
-            if not board_present():
-                self._json(412, {"error": "no board in recovery mode"})
-                return
-            # Claim the slot INSIDE the lock, before starting the thread. Two clicks that land
-            # together must not both launch a flash -- double-flashing real hardware is exactly
-            # the mistake this guards against.
-            _flash.update({"state": "flashing", "started": time.time(), "ended": 0.0, "rc": None})
-        threading.Thread(target=run_flash, daemon=True).start()
-        self._json(202, {"state": "flashing"})
 
 
 if __name__ == "__main__":
     os.makedirs(STATE_DIR, exist_ok=True)
+    # Start every boot with an empty log window. The log lives on the DATA partition, so it
+    # survives a VM reboot -- and showing a previous run's output to someone who has just
+    # powered the appliance on reads as "something is happening now", which is wrong and
+    # actively misleading when the previous run failed. Keep one generation for diagnostics.
+    try:
+        if os.path.exists(LOG_FILE):
+            os.replace(LOG_FILE, PREV_LOG)
+    except OSError:
+        pass
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

@@ -20,6 +20,8 @@
   button { font-size: 1.05rem; font-weight: 600; padding: .85rem 1.5rem; border-radius: 8px;
            border: 0; background: var(--ok); color: #fff; cursor: pointer; width: 100%; }
   button:disabled { background: #ccc; color: #777; cursor: not-allowed; }
+  button.secondary { background: none; color: var(--bad); border: 1px solid var(--bad);
+                     margin-top: .6rem; font-weight: 500; }
   #phase { margin-top: .9rem; font-size: .95rem; }
   #elapsed { color: #666; font-size: .85rem; }
   pre { background: #0d1117; color: #c9d1d9; border-radius: 8px; padding: .9rem;
@@ -53,6 +55,7 @@
 
   <div class="card">
     <button id="go" disabled>Deploy DMS image</button>
+    <button id="cancel" class="hidden secondary">Cancel</button>
     <div id="phase"></div>
     <div id="elapsed"></div>
   </div>
@@ -92,6 +95,7 @@ async function poll() {
     $("go").disabled = flashing || s.board !== "recovery";
     $("go").textContent = state === "failed" ? "Retry deployment" : "Deploy DMS image";
 
+    $("cancel").classList.toggle("hidden", !flashing);
     $("phase").textContent = flashing ? s.phase : "";
     $("elapsed").textContent = s.elapsed ? `elapsed ${mmss(s.elapsed)}` : "";
 
@@ -101,7 +105,7 @@ async function poll() {
       b.textContent = "Deployment complete. Power-cycle the board — it will boot into the DMS system.";
     } else if (state === "failed") {
       b.className = "banner bad";
-      b.textContent = `Deployment failed (exit code ${s.rc}). The log below shows what happened.`;
+      b.textContent = s.reason || `Deployment failed (exit code ${s.rc}). The log below shows what happened.`;
     } else {
       b.className = "banner hidden";
     }
@@ -121,6 +125,12 @@ async function poll() {
     $("boardtxt").textContent = "Lost contact with the appliance";
   }
 }
+
+$("cancel").onclick = async () => {
+  if (!confirm("Stop the deployment?\n\nThe board will be left half-written and must be power-cycled back into recovery mode before you can retry.")) return;
+  await fetch("/api/cancel", { method: "POST" });
+  poll();
+};
 
 $("go").onclick = async () => {
   if (state === "flashing") return;

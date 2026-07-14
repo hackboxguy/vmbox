@@ -80,7 +80,58 @@ mount -t sysfs sys  "$C/sys"
 # --rbind (not --bind) so /dev/bus/usb comes along; tegrarcm talks to the board through it.
 mount --rbind /dev  "$C/dev"
 
-log "Flashing: ./flash.sh -r $TARGET $DEVICE   (expect ~10-30 min; the board reboots itself)"
+# --- 3b. Make flash.sh wait for the board to come back after it reboots it -------------
+#
+# flash.sh talks to the board TWICE: it reads the board EEPROM first (Board ID/FAB/SKU), and
+# that probe ends with `tegrarcm_v2 --reboot recovery` -- the board resets, drops off USB, and
+# re-enumerates. flash.sh then spends ~17 s generating blobs and starts the real flash pass,
+# assuming the board is back.
+#
+# It usually is, on a Linux host. On a WINDOWS host VirtualBox takes longer to re-capture the
+# device, so the flash pass finds no bootrom, and tegrarcm_v2 blocks forever on a dead USB
+# handle ("BootRom is not running"). The device DOES come back -- the UI's board detector goes
+# green again afterwards -- so this is a race, not a detection failure. 17 s is simply not
+# enough of a margin on Windows.
+#
+# So: patch the vendor script, in the writable overlay (never the shipped read-only tree), to
+# block until the board is actually back on USB before the flash pass runs. flash.sh:3427
+# `eval "${flashcmd}"` is that pass.
+# Anchor on the banner line that immediately precedes the REAL flash pass (flash.sh:3436-3437).
+# There are two `eval "${flashcmd}"` sites -- the other is the --to-sign branch, which we never
+# take -- so anchoring on the eval itself would patch both.
+ANCHOR='echo "\*\*\* Flashing target device started\. \*\*\*"'
+F="$DATA/lft/merged/flash.sh"
+grep -qE "^${ANCHOR}$" "$F" || die "flash.sh: cannot find the flash-start banner -- L4T version changed?"
+cat > "$DATA/lft/merged/wait-for-rcm.sh" <<'WAIT'
+# Wait for the Jetson to re-appear on USB after flash.sh's probe rebooted it into recovery.
+# sysfs, not lsusb: the Ubuntu sandbox is a debootstrap minbase and has no usbutils. (And it
+# must never be tegrarcm -- the RCM handshake is one-shot; probing it would burn the session.)
+_wait_for_rcm() {
+    local i=0
+    while [ "$i" -lt 180 ]; do
+        if grep -qs '0955' /sys/bus/usb/devices/*/idVendor 2>/dev/null; then
+            [ "$i" -gt 0 ] && echo "[jetson-flash] board is back on USB after ${i}s"
+            sleep 3          # let enumeration settle before tegrarcm opens it
+            return 0
+        fi
+        [ "$i" = 0 ] && echo "[jetson-flash] waiting for the board to re-appear on USB after its reboot..."
+        sleep 1
+        i=$((i + 1))
+    done
+    echo "[jetson-flash] the board never came back on USB after its reboot (waited 180s)." >&2
+    echo "[jetson-flash] VirtualBox did not re-capture it. Power-cycle the board back into" >&2
+    echo "[jetson-flash] recovery mode, and connect it directly rather than through a hub." >&2
+    return 1
+}
+_wait_for_rcm || exit 1
+WAIT
+# Source by ABSOLUTE path: by this point flash.sh has cd'd into bootloader/, and /mnt/lft is
+# where the tree is bind-mounted inside the sandbox.
+sed -i "s|^${ANCHOR}$|&\n. /mnt/lft/wait-for-rcm.sh|" "$F"
+grep -q 'wait-for-rcm.sh' "$F" || die "failed to patch flash.sh with the USB re-attach wait"
+log "flash.sh patched: it will wait for the board to re-appear on USB before the flash pass"
+
+log "Flashing: ./flash.sh -r $TARGET $DEVICE   (expect ~10-50 min; the board reboots itself)"
 log "-------------------------------------------------------------------------------"
 # -r = reuse the prebuilt system.img instead of rebuilding it from a rootfs. The image is
 # baked at build time, so nothing is generated on the customer's machine.

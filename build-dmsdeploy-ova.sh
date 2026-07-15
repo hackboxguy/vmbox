@@ -11,15 +11,19 @@
 #      directly -- NOT built from a git repo via packages-*.txt -- so the blob never passes
 #      through the Alpine build chroot.
 #   2. APP SquashFS uses zstd, not the default xz. xz on several GB takes tens of minutes.
-#   3. USB 2.0 (EHCI) + a VID 0955 filter, so the VM can capture the Jetson in recovery mode.
-#      EHCI, not xHCI, ON PURPOSE. The board resets back into RCM partway through the flash and
-#      re-enumerates; VirtualBox must re-capture it. With xHCI that re-capture is reliable on a
-#      Linux host but FAILS on Windows -- tegrarcm then blocks forever on a dead USB device
-#      ("BootRom is not running"). The board in recovery is a USB 2.0 device anyway, and the
-#      flash is eMMC-bound (~7.5 MB/s), nowhere near even USB 2.0's ceiling, so EHCI costs
-#      nothing. NOTE the guest controller type is independent of the physical host port: a board
-#      on a USB 3 port or a USB-C dock still attaches fine to a guest EHCI controller.
-#      This REQUIRES the VirtualBox Extension Pack on the host.
+#   3. USB 3.0 (xHCI) + a VID 0955 filter, so the VM can capture the Jetson in recovery mode.
+#      xHCI is ~2x faster than EHCI on the APP write (measured: ~26 min vs ~49 min for a 12 GB
+#      image -- USB is the bottleneck, not eMMC), so we take it. It was NOT usable earlier:
+#      flash.sh used to reset the board back into RCM partway through the flash, and VirtualBox's
+#      re-capture of the re-enumerated device is reliable on Linux but FAILS on Windows (tegrarcm
+#      then blocks forever on a dead USB handle -- "BootRom is not running"). jetson-flash.sh now
+#      presets the board identity so flash.sh NEVER reboots the board mid-flash: the whole flash
+#      is one continuous USB session with no re-enumeration -- which was the *exact* thing that
+#      broke xHCI on Windows. With that gone, xHCI is safe on both hosts. If a Windows host ever
+#      regresses here, the fallback is one line: --usb=2 (EHCI), slower but re-capture-free by
+#      being the controller the board natively speaks. NOTE the guest controller type is
+#      independent of the physical host port: a board on a USB 3 port or a USB-C dock attaches
+#      fine to either guest controller. This REQUIRES the VirtualBox Extension Pack on the host.
 #   4. Sizes and the free-space gate are scaled for the payload.
 #
 # Usage (run as a NORMAL user; it calls sudo internally where needed):
@@ -155,7 +159,7 @@ convert_args=(
     --vmname="$VM_NAME"
     --appdir="$PAYLOAD_DIR"
     --memory="$VM_MEMORY"
-    --usb=2
+    --usb=3
     --jetson
     --force
 )

@@ -128,11 +128,11 @@ PIP_ONLY_BINARY="${PIP_ONLY_BINARY:-:all:}"
 # group, then those build deps are removed to keep the image small. Runtime shared
 # libraries they link against must remain via ALPINE_BASE_PACKAGES.
 #
-# pycurl: the DNG server (alm.harman.com) sits behind a Cisco Secure Access
-# zero-trust gateway that filters by TLS client fingerprint and only allows the
-# system libcurl fingerprint. python-requests/urllib3 (and curl_cffi) are blocked;
-# pycurl uses the system libcurl, so the webapp uses it as its DNG HTTP transport.
-# Runtime dependency libcurl is provided by the `curl` entry in ALPINE_BASE_PACKAGES.
+# pycurl: the DNG server sits behind a zero-trust gateway that filters by TLS
+# client fingerprint and only allows the system libcurl fingerprint.
+# python-requests/urllib3 (and curl_cffi) are blocked; pycurl uses the system
+# libcurl, so the webapp uses it as its DNG HTTP transport. Runtime dependency
+# libcurl is provided by the `curl` entry in ALPINE_BASE_PACKAGES.
 PIP_SOURCE_PACKAGES=(
     "pycurl==7.46.0"
 )

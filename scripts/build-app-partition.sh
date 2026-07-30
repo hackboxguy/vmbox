@@ -203,7 +203,7 @@ fetch_source() {
 capture_dng_webapp_build_metadata() {
     local name="$1"
     local repo="$2"
-    local version="$3"
+    local package_version="$3"
     local dest="${ROOTFS_DIR}${BUILD_DIR}/src-${name}"
     local env_file="${dest}/.vmbox-build-env"
 
@@ -215,13 +215,24 @@ capture_dng_webapp_build_metadata() {
     fi
 
     local src_path="${repo#file://}"
-    if [ ! -d "${src_path}/.git" ] || ! command -v git >/dev/null 2>&1; then
+
+    # The outer OVA version is also the user-facing packaged-webapp version.
+    # This file is sourced inside the chroot just before CMake runs.
+    {
+        printf ': "${DNG_WEBAPP_BUILD_VERSION:=%s}"\n' "$VERSION"
+        printf 'export DNG_WEBAPP_BUILD_VERSION\n'
+    } > "$env_file"
+
+    # In a recursive Git submodule .git is a file that points at the parent
+    # repository's modules directory, not a directory.  Test for existence so
+    # both normal clones and submodules retain commit metadata.
+    if [ ! -e "${src_path}/.git" ] || ! command -v git >/dev/null 2>&1; then
         return 0
     fi
 
     local git_ref="HEAD"
-    if [ "$version" != "HEAD" ]; then
-        git_ref="$version"
+    if [ "$package_version" != "HEAD" ]; then
+        git_ref="$package_version"
     fi
 
     local commit_count
@@ -241,7 +252,7 @@ capture_dng_webapp_build_metadata() {
             printf ': "${DNG_WEBAPP_BUILD_SHA:=%s}"\n' "$commit_sha"
             printf 'export DNG_WEBAPP_BUILD_SHA\n'
         fi
-    } > "$env_file"
+    } >> "$env_file"
 
     info "Captured DNG webapp build metadata: count=${commit_count} sha=${commit_sha:-unknown}"
 }

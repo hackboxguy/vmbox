@@ -135,7 +135,8 @@ echo ">>> [2/5] App partition (dngtoolkit-webapp)"
 sudo "${SCRIPT_DIR}/scripts/build-app-partition.sh" \
     --packages="$PACKAGES_FILE" \
     --output="$APP_OUT_DIR" \
-    --rootfs="$ROOTFS_DIR"
+    --rootfs="$ROOTFS_DIR" \
+    --version="$VERSION"
 
 # ---- 3) Disk image (os + data + app partitions) -----------------------------
 echo ">>> [3/5] Disk image"

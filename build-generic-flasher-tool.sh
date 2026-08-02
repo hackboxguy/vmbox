@@ -18,6 +18,7 @@ VM_NAME=""
 CLEAN=false
 EXPORT_OVA=true
 START_VM=false
+DRY_RUN=false
 
 PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher.txt"
 SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher-system.txt"
@@ -37,15 +38,17 @@ Usage: $0 [OPTIONS]
   --apppart=SIZE     Read-only application partition size (default: ${APP_PART_SIZE})
   --usb=1|2|3        VirtualBox USB controller version (default: ${USB_MODE})
   --clean            Remove the selected output directory before building
+  --dry-run          Print dependency/bootstrap and build plan without making changes
   --no-ova           Register the VM but do not export an OVA
   --start            Start the registered VM headlessly after the build
   --help, -h         Show this help
 
-Private source layout required beside vmbox/:
+Private source layout beside vmbox/:
   rh850-flash-tools/  sp6bins/  web-terminal/
 
-Initialize the private RH850 webapp submodule before building:
-  git submodule update --init --recursive
+Missing sibling repositories are cloned from their configured private GitHub
+origins before the build. The RH850 webapp submodule is initialized as needed.
+Run with --dry-run first to inspect these actions without changing the checkout.
 
 The image uses an exact VirtualBox USB filter for the EEHB Bluebox
 (VID 0403, PID a9a0). USB 2/3 requires a version-matched Extension Pack.
@@ -62,6 +65,7 @@ for arg in "$@"; do
         --apppart=*) APP_PART_SIZE="${arg#*=}" ;;
         --usb=*) USB_MODE="${arg#*=}" ;;
         --clean) CLEAN=true ;;
+        --dry-run) DRY_RUN=true ;;
         --no-ova) EXPORT_OVA=false ;;
         --start) START_VM=true ;;
         --help|-h) usage; exit 0 ;;
@@ -69,30 +73,146 @@ for arg in "$@"; do
     esac
 done
 
+case "$USB_MODE" in 1|2|3) ;; *) echo "ERROR: --usb must be 1, 2, or 3" >&2; exit 2 ;; esac
+[ -n "$VM_NAME" ] || VM_NAME="generic-flasher-v${VERSION}"
+OUTPUT_DIR="$(realpath -m "$OUTPUT_DIR")"
+
+# These are intentionally explicit: the flasher appliance is private and must
+# only fetch its reviewed source repositories from the organisation's origins.
+declare -A PRIVATE_SOURCE_URLS=(
+    [rh850-flash-tools]="https://github.com/hackboxguy/rh850-flash-tools.git"
+    [sp6bins]="https://github.com/hackboxguy/sp6bins.git"
+    [web-terminal]="https://github.com/hackboxguy/web-terminal.git"
+)
+PRIVATE_SOURCE_DIRS=(rh850-flash-tools sp6bins web-terminal)
+RH850_WEBAPP_SUBMODULE="apps/rh850-flasher-webapp"
+
+source_revision() {
+    local source_path="$1"
+    git -C "$source_path" rev-parse --short HEAD 2>/dev/null || printf 'unknown'
+}
+
+print_build_plan() {
+    local source_dir source_path parent_dir available_mb
+
+    echo "=================================================="
+    echo " Generic Flasher VMBOX dry run"
+    echo " version : ${VERSION}"
+    echo " vm name : ${VM_NAME}"
+    echo " output  : ${OUTPUT_DIR}"
+    echo " parts   : os=${OS_PART_SIZE} data=${DATA_PART_SIZE} app=${APP_PART_SIZE}"
+    echo " usb     : ${USB_MODE}.0"
+    echo "=================================================="
+    echo "Dependency bootstrap:"
+    for source_dir in "${PRIVATE_SOURCE_DIRS[@]}"; do
+        source_path="${SOURCE_ROOT}/${source_dir}"
+        if [ -d "$source_path" ]; then
+            echo "  present: ${source_path} ($(source_revision "$source_path"))"
+        elif [ -e "$source_path" ]; then
+            echo "  ERROR: ${source_path} exists but is not a directory"
+        else
+            echo "  would clone: ${PRIVATE_SOURCE_URLS[$source_dir]} -> ${source_path}"
+        fi
+    done
+
+    source_path="${SCRIPT_DIR}/${RH850_WEBAPP_SUBMODULE}"
+    if [ -f "${source_path}/CMakeLists.txt" ]; then
+        echo "  present: ${source_path} ($(source_revision "$source_path"))"
+    else
+        echo "  would initialize submodule: ${RH850_WEBAPP_SUBMODULE}"
+    fi
+
+    if command -v VBoxManage >/dev/null 2>&1; then
+        echo "VirtualBox: available ($(VBoxManage --version 2>/dev/null || printf unknown))"
+    else
+        echo "VirtualBox: MISSING (required for a real build)"
+    fi
+
+    parent_dir="$OUTPUT_DIR"
+    while [ ! -d "$parent_dir" ] && [ "$parent_dir" != / ]; do
+        parent_dir="$(dirname "$parent_dir")"
+    done
+    available_mb="$(df -BM "$parent_dir" | awk 'NR == 2 { sub(/M$/, "", $4); print $4 }')"
+    echo "Disk: ${available_mb:-unknown} MB free below ${parent_dir} (6144 MB required)"
+    [ "$CLEAN" = true ] && echo "Cleanup: would remove ${OUTPUT_DIR} before building"
+    [ "$EXPORT_OVA" = true ] && echo "Export: would create an OVA" || echo "Export: VM registration only (--no-ova)"
+    [ "$START_VM" = true ] && echo "Start: would start ${VM_NAME} headlessly"
+    echo "No files, repositories, VM registrations, or VirtualBox settings were changed."
+}
+
+bootstrap_private_sources() {
+    local source_dir source_path source_url
+
+    command -v git >/dev/null 2>&1 || {
+        echo "ERROR: git is required to fetch private build sources." >&2
+        exit 1
+    }
+
+    for source_dir in "${PRIVATE_SOURCE_DIRS[@]}"; do
+        source_path="${SOURCE_ROOT}/${source_dir}"
+        source_url="${PRIVATE_SOURCE_URLS[$source_dir]}"
+        if [ -d "$source_path" ]; then
+            echo ">>> Using private source: ${source_path} ($(source_revision "$source_path"))"
+            continue
+        fi
+        [ ! -e "$source_path" ] || {
+            echo "ERROR: required source path exists but is not a directory: ${source_path}" >&2
+            exit 1
+        }
+
+        echo ">>> Cloning private source: ${source_url}"
+        git clone --recurse-submodules --branch main "$source_url" "$source_path" || {
+            echo "ERROR: could not clone ${source_dir}. Ensure your GitHub credentials can access the private repository." >&2
+            exit 1
+        }
+    done
+}
+
+bootstrap_rh850_webapp_submodule() {
+    local source_path="${SCRIPT_DIR}/${RH850_WEBAPP_SUBMODULE}"
+    [ -f "${source_path}/CMakeLists.txt" ] && return 0
+
+    command -v git >/dev/null 2>&1 || {
+        echo "ERROR: git is required to initialize ${RH850_WEBAPP_SUBMODULE}." >&2
+        exit 1
+    }
+    echo ">>> Initializing private webapp submodule: ${RH850_WEBAPP_SUBMODULE}"
+    git -C "$SCRIPT_DIR" submodule update --init --recursive -- "$RH850_WEBAPP_SUBMODULE" || {
+        echo "ERROR: could not initialize ${RH850_WEBAPP_SUBMODULE}. Ensure your GitHub credentials can access the private repository." >&2
+        exit 1
+    }
+    [ -f "${source_path}/CMakeLists.txt" ] || {
+        echo "ERROR: RH850 webapp submodule is incomplete: ${source_path}" >&2
+        exit 1
+    }
+}
+
+validate_build_inputs() {
+    local input
+    for input in \
+        "${PACKAGES_FILE}" \
+        "${SYSTEM_RUNTIME_PACKAGES_FILE}" \
+        "${APP_SYSTEM_PACKAGES_FILE}" \
+        "${SOURCE_ROOT}/sp6bins/firmware/catalog.json" \
+        "${SCRIPT_DIR}/apps/rh850-flasher-webapp/CMakeLists.txt" \
+        "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"; do
+        [ -f "$input" ] || { echo "ERROR: required build input is missing: $input" >&2; exit 1; }
+    done
+}
+
+if [ "$DRY_RUN" = true ]; then
+    print_build_plan
+    exit 0
+fi
+
 [ "$(id -u)" -ne 0 ] || {
     echo "ERROR: run this builder as a normal user, not root." >&2
     exit 1
 }
 
-case "$USB_MODE" in 1|2|3) ;; *) echo "ERROR: --usb must be 1, 2, or 3" >&2; exit 2 ;; esac
-[ -n "$VM_NAME" ] || VM_NAME="generic-flasher-v${VERSION}"
-OUTPUT_DIR="$(realpath -m "$OUTPUT_DIR")"
-
-for source_dir in rh850-flash-tools sp6bins web-terminal; do
-    [ -d "${SOURCE_ROOT}/${source_dir}" ] || {
-        echo "ERROR: required private source directory is missing: ${SOURCE_ROOT}/${source_dir}" >&2
-        exit 1
-    }
-done
-for input in \
-    "${PACKAGES_FILE}" \
-    "${SYSTEM_RUNTIME_PACKAGES_FILE}" \
-    "${APP_SYSTEM_PACKAGES_FILE}" \
-    "${SOURCE_ROOT}/sp6bins/firmware/catalog.json" \
-    "${SCRIPT_DIR}/apps/rh850-flasher-webapp/CMakeLists.txt" \
-    "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"; do
-    [ -f "$input" ] || { echo "ERROR: required build input is missing: $input" >&2; exit 1; }
-done
+bootstrap_private_sources
+bootstrap_rh850_webapp_submodule
+validate_build_inputs
 command -v VBoxManage >/dev/null 2>&1 || {
     echo "ERROR: VBoxManage is required to register or export the VM." >&2
     exit 1

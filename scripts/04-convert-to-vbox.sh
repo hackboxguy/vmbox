@@ -372,15 +372,16 @@ configure_vm() {
 
     info "Disk attached: $vdi_file"
 
+    # The host path must exist before VirtualBox registers the shared folder.
+    # Creating it afterwards made the initial OVA miss the share permanently.
+    mkdir -p "${OUTPUT_DIR}/shared"
+
     # Shared folders
     VBoxManage sharedfolder add "$VM_NAME" \
         --name "shared" \
         --hostpath "${OUTPUT_DIR}/shared" \
         --automount \
-        &>/dev/null || warn "Could not add shared folder (will be created on first run)"
-
-    # Create shared folder directory on host
-    mkdir -p "${OUTPUT_DIR}/shared"
+        &>/dev/null || warn "Could not add shared folder"
 
     info "Shared folder: ${OUTPUT_DIR}/shared -> /mnt/shared"
 }

@@ -221,18 +221,19 @@ The repository includes `build-generic-flasher-tool.sh` for the private RH850
 flashing appliance. It builds the System Management UI, Web Terminal, and RH850
 Flasher app, then registers and optionally exports an OVA.
 
-The builder intentionally expects these private sibling source directories and
-does not copy their firmware or target configuration into VMBOX source:
+The builder keeps firmware and target configuration out of the VMBOX source.
+It uses these private sibling source directories, cloning a missing one from
+its configured private GitHub origin before it starts the build:
 
 ```text
 rh850-flash-tools/  sp6bins/  web-terminal/  vmbox/
 ```
 
-The private RH850 flasher webapp is a pinned VMBOX submodule. Initialize it
-before building:
+The private RH850 flasher webapp is a pinned VMBOX submodule and is initialized
+automatically when needed. Review the actions and host prerequisites first:
 
 ```bash
-git submodule update --init --recursive
+./build-generic-flasher-tool.sh --dry-run
 ```
 
 Run it as a normal user:

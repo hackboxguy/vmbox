@@ -33,6 +33,7 @@ source "${SCRIPT_DIR}/chroot-helper.sh"
 ROOTFS_DIR=""
 PACKAGES_FILE=""
 APP_STAGING=""
+SYSTEM_PACKAGES_FILE=""
 VERSION=""
 DEBUG_MODE=false
 GIT_TOKEN="${GIT_TOKEN:-}"  # Git token for private repos (env or --git-token=)
@@ -56,6 +57,8 @@ Required Arguments:
 
 Optional Arguments:
   --output=DIR         Output staging directory (default: \$ROOTFS/../app-staging)
+  --system-packages=FILE
+                       Optional system package list to build into rootfs first
   --version=VERSION    Version string for global manifest (default: 1.0.0)
   --git-token=TOKEN    Git token for cloning private repositories
                        Can also be set via GIT_TOKEN environment variable
@@ -92,6 +95,7 @@ parse_arguments() {
             --rootfs=*)     ROOTFS_DIR="${arg#*=}" ;;
             --packages=*)   PACKAGES_FILE="${arg#*=}" ;;
             --output=*)     APP_STAGING="${arg#*=}" ;;
+            --system-packages=*) SYSTEM_PACKAGES_FILE="${arg#*=}" ;;
             --version=*)    VERSION="${arg#*=}" ;;
             --git-token=*)  GIT_TOKEN="${arg#*=}" ;;
             --debug)        DEBUG_MODE=true ;;
@@ -107,6 +111,11 @@ parse_arguments() {
     # Convert to absolute paths
     ROOTFS_DIR="$(to_absolute_path "$ROOTFS_DIR")"
     PACKAGES_FILE="$(to_absolute_path "$PACKAGES_FILE")"
+    if [ -n "$SYSTEM_PACKAGES_FILE" ]; then
+        SYSTEM_PACKAGES_FILE="$(to_absolute_path "$SYSTEM_PACKAGES_FILE")"
+    else
+        SYSTEM_PACKAGES_FILE="${PROJECT_ROOT}/system-packages.txt"
+    fi
 
     # Set defaults
     if [ -z "$APP_STAGING" ]; then
@@ -119,9 +128,10 @@ parse_arguments() {
     # Validate inputs
     validate_dir "$ROOTFS_DIR" "Rootfs directory"
     validate_file "$PACKAGES_FILE" "Packages file"
+    validate_file "$SYSTEM_PACKAGES_FILE" "System packages file"
 
     # Export for sub-processes
-    export ROOTFS_DIR PACKAGES_FILE APP_STAGING VERSION DEBUG_MODE
+    export ROOTFS_DIR PACKAGES_FILE APP_STAGING SYSTEM_PACKAGES_FILE VERSION DEBUG_MODE
     export PROJECT_ROOT SCRIPT_DIR
 }
 
@@ -323,7 +333,7 @@ remove_build_deps() {
 
 # Build system packages from system-packages.txt
 build_system_packages() {
-    local system_packages_file="${PROJECT_ROOT}/system-packages.txt"
+    local system_packages_file="$SYSTEM_PACKAGES_FILE"
 
     if [ ! -f "$system_packages_file" ]; then
         info "No system-packages.txt found, skipping system package builds"
@@ -872,6 +882,7 @@ main() {
     show_config \
         "Rootfs" "$ROOTFS_DIR" \
         "Packages file" "$PACKAGES_FILE" \
+        "System packages" "$SYSTEM_PACKAGES_FILE" \
         "Staging directory" "$APP_STAGING" \
         "Version" "$VERSION"
 

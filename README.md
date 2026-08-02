@@ -215,6 +215,28 @@ VBoxManage startvm vmbox-apps --type headless
 # - Web Terminal: http://localhost:8003 (or via proxy at http://localhost:8000/app/web-terminal/)
 ```
 
+## Private Generic Flasher Appliance
+
+The repository includes `build-generic-flasher-tool.sh` for the private RH850
+flashing appliance. It builds the System Management UI, Web Terminal, and RH850
+Flasher app, then registers and optionally exports an OVA.
+
+The builder intentionally expects these private sibling source directories and
+does not copy their firmware or target configuration into VMBOX source:
+
+```text
+rh850-flash-tools/  sp6bins/  rh850-flasher-webapp/  web-terminal/  vmbox/
+```
+
+Run it as a normal user:
+
+```bash
+./build-generic-flasher-tool.sh --version=1.0.0
+```
+
+It adds an exact `0403:a9a0` USB filter for the EEHB Bluebox. Use `--usb=2` or
+`--usb=3` only when the host has the matching VirtualBox Extension Pack.
+
 ## Accessing the VM
 
 | Service | URL/Command |

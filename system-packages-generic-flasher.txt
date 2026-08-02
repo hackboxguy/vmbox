@@ -1,0 +1,2 @@
+# The generic flasher image has no additional APP build-time system packages.
+# RH850 runtime tools and firmware are installed by packages-generic-flasher-system.txt.

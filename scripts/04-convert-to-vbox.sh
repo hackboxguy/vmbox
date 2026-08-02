@@ -31,6 +31,7 @@ USB_MODE=""           # off, 1, 2, or 3 (USB controller version)
 USB_STORAGE_IDS=""    # Comma-separated USB storage vendor IDs (e.g., 8564,1234)
 ENABLE_PCAN=false     # Enable PCAN-USB adapter filter (VID 0c72)
 ENABLE_JETSON=false   # Enable NVIDIA Jetson recovery-mode filter (VID 0955)
+ENABLE_RH850_BLUEBOX=false # Enable exact EEHB Bluebox filter (0403:a9a0)
 HOST_SERIAL=""        # Host serial port to pass through (e.g., /dev/ttyS0, COM1)
 
 # Port forwarding (with defaults in case config.sh doesn't define them)
@@ -75,6 +76,8 @@ Optional Arguments:
   --pcan                Enable PCAN-USB adapter filter (VID 0c72, peak_usb driver)
   --jetson              Enable NVIDIA Jetson recovery-mode filter (VID 0955, any PID).
                         Needed to flash a Jetson from inside the VM. Use with --usb=3.
+  --rh850-bluebox       Enable exact EEHB Bluebox filter (VID 0403, PID a9a0).
+                        Avoids claiming unrelated FTDI devices.
   --hostserial=PORT     Pass through host serial port to VM COM1
                         Linux: /dev/ttyS0, /dev/ttyS1, etc.
                         Windows: COM1, COM2, etc.
@@ -132,6 +135,7 @@ parse_arguments() {
             --usbstorageid=*) USB_STORAGE_IDS="${arg#*=}" ;;
             --pcan)         ENABLE_PCAN=true ;;
             --jetson)       ENABLE_JETSON=true ;;
+            --rh850-bluebox) ENABLE_RH850_BLUEBOX=true ;;
             --hostserial=*) HOST_SERIAL="${arg#*=}" ;;
             --export-ova)   EXPORT_OVA=true ;;
             --force)        FORCE=true ;;
@@ -447,56 +451,74 @@ configure_usb() {
     # Add USB device filters for common serial adapters
     # These filters will auto-attach matching devices when plugged in
 
-    # FTDI (FT232, FT2232, FT4232) - VID 0403
-    VBoxManage usbfilter add 0 --target "$VM_NAME" \
-        --name "FTDI Serial" \
-        --vendorid 0403 \
-        --active yes &>/dev/null || true
-    info "  Filter: FTDI (VID 0403)"
+    local next_filter=0
+
+    # A generic FTDI filter claims every FTDI device. The RH850 appliance
+    # explicitly selects only the Bluebox, while general VMBOX images retain
+    # the existing broad FTDI behaviour.
+    if [ "$ENABLE_RH850_BLUEBOX" = "true" ]; then
+        VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
+            --name "EEHB Bluebox RH850 programmer" \
+            --vendorid 0403 \
+            --productid a9a0 \
+            --active yes &>/dev/null || true
+        info "  Filter: EEHB Bluebox (VID 0403, PID a9a0)"
+    else
+        VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
+            --name "FTDI Serial" \
+            --vendorid 0403 \
+            --active yes &>/dev/null || true
+        info "  Filter: FTDI (VID 0403)"
+    fi
+    next_filter=$((next_filter + 1))
 
     # Silicon Labs CP210x - VID 10C4
-    VBoxManage usbfilter add 1 --target "$VM_NAME" \
+    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
         --name "CP210x Serial" \
         --vendorid 10C4 \
         --active yes &>/dev/null || true
     info "  Filter: Silicon Labs CP210x (VID 10C4)"
+    next_filter=$((next_filter + 1))
 
     # WCH CH340/CH341 - VID 1A86
-    VBoxManage usbfilter add 2 --target "$VM_NAME" \
+    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
         --name "CH340/CH341 Serial" \
         --vendorid 1A86 \
         --active yes &>/dev/null || true
     info "  Filter: WCH CH340/CH341 (VID 1A86)"
+    next_filter=$((next_filter + 1))
 
     # Prolific PL2303 - VID 067B
-    VBoxManage usbfilter add 3 --target "$VM_NAME" \
+    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
         --name "PL2303 Serial" \
         --vendorid 067B \
         --active yes &>/dev/null || true
     info "  Filter: Prolific PL2303 (VID 067B)"
+    next_filter=$((next_filter + 1))
 
     # Arduino boards (MKR, Uno, Leonardo, etc.) - VID 2341
-    VBoxManage usbfilter add 4 --target "$VM_NAME" \
+    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
         --name "Arduino" \
         --vendorid 2341 \
         --active yes &>/dev/null || true
     info "  Filter: Arduino (VID 2341)"
+    next_filter=$((next_filter + 1))
 
     # Android ADB devices - VID 18d1 (Google/AOSP, includes Harman IVI)
-    VBoxManage usbfilter add 5 --target "$VM_NAME" \
+    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
         --name "Android ADB" \
         --vendorid 18d1 \
         --active yes &>/dev/null || true
     info "  Filter: Android ADB (VID 18d1)"
+    next_filter=$((next_filter + 1))
 
     # CANable USB-CAN adapter (gs_usb driver) - VID 1d50
-    VBoxManage usbfilter add 6 --target "$VM_NAME" \
+    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
         --name "CANable" \
         --vendorid 1d50 \
         --active yes &>/dev/null || true
     info "  Filter: CANable (VID 1d50)"
-
-    local next_filter=7
+    next_filter=$((next_filter + 1))
 
     # NVIDIA Jetson in recovery mode (APX / RCM) - VID 0955 (opt-in via --jetson)
     #

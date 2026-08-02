@@ -12,6 +12,7 @@ SHELL := /bin/bash
 # Core shell scripts (excludes submodule scripts under apps/)
 SHELL_SCRIPTS := \
 	build.sh \
+	build-generic-flasher-tool.sh \
 	config.sh \
 	scripts/lib.sh \
 	scripts/chroot-helper.sh \
@@ -20,7 +21,9 @@ SHELL_SCRIPTS := \
 	scripts/03-create-image.sh \
 	scripts/04-convert-to-vbox.sh \
 	scripts/build-app-partition.sh \
-	scripts/smoke-test.sh
+	scripts/smoke-test.sh \
+	packages/rh850-flash-tools-hook.sh \
+	packages/rh850-firmware-catalog-hook.sh
 
 # Core Python files (excludes submodule apps)
 PYTHON_FILES := \

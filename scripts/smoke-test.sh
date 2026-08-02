@@ -34,6 +34,7 @@ fi
 echo "[2] Shell script syntax"
 for script in \
     "${PROJECT_ROOT}/build.sh" \
+    "${PROJECT_ROOT}/build-generic-flasher-tool.sh" \
     "${PROJECT_ROOT}/config.sh" \
     "${SCRIPT_DIR}/lib.sh" \
     "${SCRIPT_DIR}/chroot-helper.sh" \
@@ -41,7 +42,9 @@ for script in \
     "${SCRIPT_DIR}/02-build-packages.sh" \
     "${SCRIPT_DIR}/03-create-image.sh" \
     "${SCRIPT_DIR}/04-convert-to-vbox.sh" \
-    "${SCRIPT_DIR}/build-app-partition.sh"; do
+    "${SCRIPT_DIR}/build-app-partition.sh" \
+    "${PROJECT_ROOT}/packages/rh850-flash-tools-hook.sh" \
+    "${PROJECT_ROOT}/packages/rh850-firmware-catalog-hook.sh"; do
     name="$(basename "$script")"
     if [ ! -f "$script" ]; then
         fail "$name not found"

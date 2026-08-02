@@ -225,7 +225,14 @@ The builder intentionally expects these private sibling source directories and
 does not copy their firmware or target configuration into VMBOX source:
 
 ```text
-rh850-flash-tools/  sp6bins/  rh850-flasher-webapp/  web-terminal/  vmbox/
+rh850-flash-tools/  sp6bins/  web-terminal/  vmbox/
+```
+
+The private RH850 flasher webapp is a pinned VMBOX submodule. Initialize it
+before building:
+
+```bash
+git submodule update --init --recursive
 ```
 
 Run it as a normal user:

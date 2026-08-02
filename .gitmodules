@@ -10,3 +10,7 @@
 [submodule "apps/dngtoolkit-webapp"]
 	path = apps/dngtoolkit-webapp
 	url = https://github.com/hackboxguy/dngtoolkit-webapp.git
+[submodule "apps/rh850-flasher-webapp"]
+	path = apps/rh850-flasher-webapp
+	url = https://github.com/hackboxguy/rh850-flasher-webapp.git
+	branch = main

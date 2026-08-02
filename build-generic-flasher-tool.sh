@@ -42,7 +42,10 @@ Usage: $0 [OPTIONS]
   --help, -h         Show this help
 
 Private source layout required beside vmbox/:
-  rh850-flash-tools/  sp6bins/  rh850-flasher-webapp/  web-terminal/
+  rh850-flash-tools/  sp6bins/  web-terminal/
+
+Initialize the private RH850 webapp submodule before building:
+  git submodule update --init --recursive
 
 The image uses an exact VirtualBox USB filter for the EEHB Bluebox
 (VID 0403, PID a9a0). USB 2/3 requires a version-matched Extension Pack.
@@ -75,7 +78,7 @@ case "$USB_MODE" in 1|2|3) ;; *) echo "ERROR: --usb must be 1, 2, or 3" >&2; exi
 [ -n "$VM_NAME" ] || VM_NAME="generic-flasher-v${VERSION}"
 OUTPUT_DIR="$(realpath -m "$OUTPUT_DIR")"
 
-for source_dir in rh850-flash-tools sp6bins rh850-flasher-webapp web-terminal; do
+for source_dir in rh850-flash-tools sp6bins web-terminal; do
     [ -d "${SOURCE_ROOT}/${source_dir}" ] || {
         echo "ERROR: required private source directory is missing: ${SOURCE_ROOT}/${source_dir}" >&2
         exit 1
@@ -86,7 +89,7 @@ for input in \
     "${SYSTEM_RUNTIME_PACKAGES_FILE}" \
     "${APP_SYSTEM_PACKAGES_FILE}" \
     "${SOURCE_ROOT}/sp6bins/firmware/catalog.json" \
-    "${SOURCE_ROOT}/rh850-flasher-webapp/CMakeLists.txt" \
+    "${SCRIPT_DIR}/apps/rh850-flasher-webapp/CMakeLists.txt" \
     "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"; do
     [ -f "$input" ] || { echo "ERROR: required build input is missing: $input" >&2; exit 1; }
 done

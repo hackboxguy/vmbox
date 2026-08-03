@@ -214,6 +214,7 @@ validate_build_inputs() {
         "${SYSTEM_RUNTIME_PACKAGES_FILE}" \
         "${APP_SYSTEM_PACKAGES_FILE}" \
         "${SOURCE_ROOT}/sp6bins/firmware/catalog.json" \
+        "${SOURCE_ROOT}/sp6bins/tools/install_rh850_firmware_catalog.py" \
         "${SCRIPT_DIR}/apps/rh850-flasher-webapp/CMakeLists.txt" \
         "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"; do
         [ -f "$input" ] || { echo "ERROR: required build input is missing: $input" >&2; exit 1; }

@@ -2,4 +2,4 @@
 # Source paths are intentionally relative to this file: private source trees
 # remain siblings of the VMBOX checkout and are never copied into VMBOX.
 packages/rh850-flash-tools-hook.sh|file://../rh850-flash-tools|local|/usr|cmake
-packages/rh850-firmware-catalog-hook.sh|file://../sp6bins|local|/usr|
+packages/rh850-firmware-catalog-hook.sh|file://../sp6bins|local|/usr|python3

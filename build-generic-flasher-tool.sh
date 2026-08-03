@@ -92,8 +92,12 @@ source_revision() {
     git -C "$source_path" rev-parse --short HEAD 2>/dev/null || printf 'unknown'
 }
 
+expected_webapp_revision() {
+    git -C "$SCRIPT_DIR" ls-tree HEAD -- "$RH850_WEBAPP_SUBMODULE" 2>/dev/null | awk '{print $3}'
+}
+
 print_build_plan() {
-    local source_dir source_path parent_dir available_mb
+    local source_dir source_path parent_dir available_mb expected_revision current_revision
 
     echo "=================================================="
     echo " Generic Flasher VMBOX dry run"
@@ -116,8 +120,12 @@ print_build_plan() {
     done
 
     source_path="${SCRIPT_DIR}/${RH850_WEBAPP_SUBMODULE}"
-    if [ -f "${source_path}/CMakeLists.txt" ]; then
+    expected_revision="$(expected_webapp_revision)"
+    current_revision="$(git -C "$source_path" rev-parse HEAD 2>/dev/null || true)"
+    if [ -f "${source_path}/CMakeLists.txt" ] && [ -n "$expected_revision" ] && [ "$current_revision" = "$expected_revision" ]; then
         echo "  present: ${source_path} ($(source_revision "$source_path"))"
+    elif [ -f "${source_path}/CMakeLists.txt" ] && [ -n "$expected_revision" ]; then
+        echo "  would update submodule: ${RH850_WEBAPP_SUBMODULE} (${current_revision:-unknown} -> ${expected_revision})"
     else
         echo "  would initialize submodule: ${RH850_WEBAPP_SUBMODULE}"
     fi
@@ -170,19 +178,31 @@ bootstrap_private_sources() {
 
 bootstrap_rh850_webapp_submodule() {
     local source_path="${SCRIPT_DIR}/${RH850_WEBAPP_SUBMODULE}"
-    [ -f "${source_path}/CMakeLists.txt" ] && return 0
+    local expected_revision current_revision
 
     command -v git >/dev/null 2>&1 || {
         echo "ERROR: git is required to initialize ${RH850_WEBAPP_SUBMODULE}." >&2
         exit 1
     }
-    echo ">>> Initializing private webapp submodule: ${RH850_WEBAPP_SUBMODULE}"
-    git -C "$SCRIPT_DIR" submodule update --init --recursive -- "$RH850_WEBAPP_SUBMODULE" || {
-        echo "ERROR: could not initialize ${RH850_WEBAPP_SUBMODULE}. Ensure your GitHub credentials can access the private repository." >&2
+    expected_revision="$(expected_webapp_revision)"
+    [[ "$expected_revision" =~ ^[0-9a-f]{40}$ ]] || {
+        echo "ERROR: ${RH850_WEBAPP_SUBMODULE} is not a valid pinned submodule in this VMBOX checkout." >&2
         exit 1
     }
-    [ -f "${source_path}/CMakeLists.txt" ] || {
-        echo "ERROR: RH850 webapp submodule is incomplete: ${source_path}" >&2
+    current_revision="$(git -C "$source_path" rev-parse HEAD 2>/dev/null || true)"
+    if [ -f "${source_path}/CMakeLists.txt" ] && [ "$current_revision" = "$expected_revision" ]; then
+        echo ">>> Using private webapp submodule: ${RH850_WEBAPP_SUBMODULE} ($(source_revision "$source_path"))"
+        return 0
+    fi
+
+    echo ">>> Synchronizing private webapp submodule: ${RH850_WEBAPP_SUBMODULE} (${current_revision:-uninitialized} -> ${expected_revision})"
+    git -C "$SCRIPT_DIR" submodule update --init --recursive -- "$RH850_WEBAPP_SUBMODULE" || {
+        echo "ERROR: could not synchronize ${RH850_WEBAPP_SUBMODULE}. Ensure your GitHub credentials can access the private repository and the checkout has no conflicting local changes." >&2
+        exit 1
+    }
+    current_revision="$(git -C "$source_path" rev-parse HEAD 2>/dev/null || true)"
+    [ -f "${source_path}/CMakeLists.txt" ] && [ "$current_revision" = "$expected_revision" ] || {
+        echo "ERROR: RH850 webapp submodule did not reach its pinned revision: ${expected_revision}" >&2
         exit 1
     }
 }

@@ -230,7 +230,8 @@ rh850-flash-tools/  sp6bins/  web-terminal/  vmbox/
 ```
 
 The private RH850 flasher webapp is a pinned VMBOX submodule and is initialized
-automatically when needed. Review the actions and host prerequisites first:
+or synchronized to its pinned revision automatically. Review the actions and
+host prerequisites first:
 
 ```bash
 ./build-generic-flasher-tool.sh --dry-run

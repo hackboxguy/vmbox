@@ -25,9 +25,10 @@ PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher.txt"
 SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher-system.txt"
 APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-generic-flasher.txt"
 FPGA_USB_FILTER_FILE="${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt"
-FPGA_WEBAPP_REVISION="a5427ca06a354022d7edabf47069b8b2433ddcfe"
-SP6BINS_REVISION="7a3477a1d9566561395e9276d0d2aca402051028"
+FPGA_WEBAPP_REVISION="fbc5e1f27107f83856918d131465163275a7f711"
+SP6BINS_REVISION="3f8bb68dcc9f0358f93d3d5739c4f3440ae796c7"
 XC3SPROG_REVISION="895a823aaaa705017a4b22a9a3d85fb1a4e3b1a7"
+OPENFPGALOADER_REVISION="1fc75395385ae7f3d31bfdd6cba0467e0afb4d25"
 
 usage() {
     cat <<EOF
@@ -158,6 +159,13 @@ print_build_plan() {
         echo "  ERROR: required FPGA webapp source is missing: ${source_path}"
     fi
 
+    source_path="${SOURCE_ROOT}/openFPGALoader"
+    if [ -f "${source_path}/CMakeLists.txt" ]; then
+        echo "  present: ${source_path} ($(source_revision "$source_path"), expected ${OPENFPGALOADER_REVISION:0:7})"
+    else
+        echo "  ERROR: required pinned OpenFPGALoader source is missing: ${source_path}"
+    fi
+
     fpga_catalogue="${SOURCE_ROOT}/sp6bins/firmware/fpga/catalog.json"
     if [ -f "$fpga_catalogue" ]; then
         echo "FPGA profiles: private catalogue present (${fpga_catalogue})"
@@ -282,6 +290,8 @@ validate_fpga_build_inputs() {
         "${SOURCE_ROOT}/sp6bins/firmware/fpga/runtime-config.json" \
         "${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt" \
         "${SOURCE_ROOT}/xc3sprog/CMakeLists.txt" \
+        "${SOURCE_ROOT}/openFPGALoader/CMakeLists.txt" \
+        "${SOURCE_ROOT}/sp6bins/src/scripts/fpga-openfpgaloader-artyz7-backend.sh" \
         "${SOURCE_ROOT}/fpga-flasher-webapp/CMakeLists.txt"; do
         [ -f "$input" ] || { echo "ERROR: required FPGA build input is missing: $input" >&2; exit 1; }
     done
@@ -289,6 +299,7 @@ validate_fpga_build_inputs() {
     validate_pinned_source "${SOURCE_ROOT}/fpga-flasher-webapp" "$FPGA_WEBAPP_REVISION"
     validate_pinned_source "${SOURCE_ROOT}/sp6bins" "$SP6BINS_REVISION"
     validate_pinned_source "${SOURCE_ROOT}/xc3sprog" "$XC3SPROG_REVISION"
+    validate_pinned_source "${SOURCE_ROOT}/openFPGALoader" "$OPENFPGALOADER_REVISION"
 }
 
 validate_pinned_source() {

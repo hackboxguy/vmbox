@@ -1,4 +1,4 @@
 # Rootfs packages required by the restricted FPGA qualification backend.
 packages/fpga-runtime-dependencies-hook.sh
-packages/fpga-xc3sprog-hook.sh|file://../xc3sprog|00b3279668be35855e25cab1a368fd2f87af4350|/usr|cmake,make,g++,pkgconf,libusb-compat-dev,libftdi1-dev,libgpiod-dev,linux-headers
+packages/fpga-xc3sprog-hook.sh|file://../xc3sprog|1dfefde2d834848488ed34a2a1d0ebad7a17721f|/usr|cmake,make,g++,pkgconf,libusb-compat-dev,libftdi1-dev,libgpiod-dev,linux-headers
 packages/fpga-firmware-catalog-hook.sh|file://../sp6bins|local|/usr|python3

@@ -2,4 +2,4 @@
 # terminal applications, so FPGA hardware qualification is reproducible with
 # only the pinned FPGA sources present.
 # NAME|GIT_REPO|VERSION|CMAKE_OPTIONS|BUILD_DEPS|PORT|PRIORITY|TYPE|DESCRIPTION
-fpga-flasher-webapp|file://../fpga-flasher-webapp|6cb5bdf37b217026475a8c9046956000fba25e25||cmake,python3|8006|29|webapp|FPGA Configuration Flasher
+fpga-flasher-webapp|file://../fpga-flasher-webapp|f6cc386c9ed08397ba1fb14e2d293677a78d4725||cmake,python3|8006|29|webapp|FPGA Configuration Flasher

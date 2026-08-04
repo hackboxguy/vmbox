@@ -2,4 +2,4 @@
 # This file is used by build-generic-flasher-tool.sh from the vmbox directory.
 web-terminal|file://../web-terminal|HEAD||cmake,python3|8003|26|webapp|Web Serial Terminal
 rh850-flasher-webapp|file://${PROJECT_ROOT}/apps/rh850-flasher-webapp|HEAD||cmake,python3|8005|28|webapp|RH850 Bluebox Flasher
-fpga-flasher-webapp|file://../fpga-flasher-webapp|6cb5bdf37b217026475a8c9046956000fba25e25||cmake,python3|8006|29|webapp|FPGA Configuration Flasher
+fpga-flasher-webapp|file://../fpga-flasher-webapp|f6cc386c9ed08397ba1fb14e2d293677a78d4725||cmake,python3|8006|29|webapp|FPGA Configuration Flasher

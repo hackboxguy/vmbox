@@ -315,6 +315,10 @@ def proxy_request_to_app(app_name, path):
                 connection.close()
 
         flask_resp = Response(stream_with_context(stream_backend_response()), status=backend_response.status)
+        # Flask creates a default text/html Content-Type.  The backend owns the
+        # actual media type (for example text/css for a proxied stylesheet);
+        # forwarding both makes strict browsers reject the asset under nosniff.
+        flask_resp.headers.pop('Content-Type', None)
         for key, value in response_headers:
             if key.lower() not in HOP_BY_HOP_HEADERS:
                 flask_resp.headers.add(key, value)

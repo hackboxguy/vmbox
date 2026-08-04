@@ -42,6 +42,13 @@ class _Backend(BaseHTTPRequestHandler):
         self.wfile.write(b'{"streamed":')
         self.wfile.write(b"true}")
 
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/css; charset=utf-8")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(b":root { --fixture: 1; }")
+
 
 @skipUnless(flask is not None, "Flask is available in the VMBOX rootfs, not this host checkout")
 class SystemManagementProxyTests(TestCase):
@@ -92,6 +99,13 @@ class SystemManagementProxyTests(TestCase):
             "/app/fpga-flasher-webapp/api/v1/artifacts", data=b"x"
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_proxy_preserves_a_single_backend_content_type_for_stylesheets(self):
+        response = self.authenticated_client().get("/app/fpga-flasher-webapp/styles.css")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, b":root { --fixture: 1; }")
+        self.assertEqual(response.headers.getlist("Content-Type"), ["text/css; charset=utf-8"])
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
 
 
 if __name__ == "__main__":

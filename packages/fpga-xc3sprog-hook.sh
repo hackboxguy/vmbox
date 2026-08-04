@@ -13,7 +13,7 @@ BUILD_DIR=/tmp/fpga-xc3sprog-build
 
 # These are runtime tools, not compiler dependencies.  The base image already
 # provides lsusb; fxload is required for the XPC2 firmware bootstrap.
-apk add --no-cache fxload
+apk add --no-cache fxload@testing
 
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \

@@ -1,0 +1,5 @@
+# Dedicated Gate-3a image: it deliberately excludes unrelated RH850 and
+# terminal applications, so FPGA hardware qualification is reproducible with
+# only the pinned FPGA sources present.
+# NAME|GIT_REPO|VERSION|CMAKE_OPTIONS|BUILD_DEPS|PORT|PRIORITY|TYPE|DESCRIPTION
+fpga-flasher-webapp|file://../fpga-flasher-webapp|6ce05066f0937a1a17cced960f5aa366f03a5edf||cmake,python3|8006|29|webapp|FPGA Configuration Flasher

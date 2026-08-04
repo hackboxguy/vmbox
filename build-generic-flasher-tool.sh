@@ -19,6 +19,7 @@ CLEAN=false
 EXPORT_OVA=true
 START_VM=false
 DRY_RUN=false
+FPGA_QUALIFICATION=false
 
 PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher.txt"
 SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher-system.txt"
@@ -43,6 +44,9 @@ Usage: $0 [OPTIONS]
   --usb=1|2|3        VirtualBox USB controller version (default: ${USB_MODE})
   --clean            Remove the selected output directory before building
   --dry-run          Print dependency/bootstrap and build plan without making changes
+  --fpga-qualification
+                     Build the pinned FPGA-only Gate-3a VM; excludes unrelated
+                     RH850 and Web Terminal sources and applications.
   --no-ova           Register the VM but do not export an OVA
   --start            Start the registered VM headlessly after the build
   --help, -h         Show this help
@@ -70,6 +74,7 @@ for arg in "$@"; do
         --usb=*) USB_MODE="${arg#*=}" ;;
         --clean) CLEAN=true ;;
         --dry-run) DRY_RUN=true ;;
+        --fpga-qualification) FPGA_QUALIFICATION=true ;;
         --no-ova) EXPORT_OVA=false ;;
         --start) START_VM=true ;;
         --help|-h) usage; exit 0 ;;
@@ -91,6 +96,13 @@ declare -A PRIVATE_SOURCE_URLS=(
 )
 PRIVATE_SOURCE_DIRS=(rh850-flash-tools sp6bins xc3sprog web-terminal)
 RH850_WEBAPP_SUBMODULE="apps/rh850-flasher-webapp"
+
+if [ "$FPGA_QUALIFICATION" = true ]; then
+    PACKAGES_FILE="${SCRIPT_DIR}/packages-fpga-qualification.txt"
+    SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-fpga-qualification-system.txt"
+    APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-fpga-qualification.txt"
+    PRIVATE_SOURCE_DIRS=(sp6bins xc3sprog)
+fi
 
 source_revision() {
     local source_path="$1"
@@ -124,15 +136,19 @@ print_build_plan() {
         fi
     done
 
-    source_path="${SCRIPT_DIR}/${RH850_WEBAPP_SUBMODULE}"
-    expected_revision="$(expected_webapp_revision)"
-    current_revision="$(git -C "$source_path" rev-parse HEAD 2>/dev/null || true)"
-    if [ -f "${source_path}/CMakeLists.txt" ] && [ -n "$expected_revision" ] && [ "$current_revision" = "$expected_revision" ]; then
-        echo "  present: ${source_path} ($(source_revision "$source_path"))"
-    elif [ -f "${source_path}/CMakeLists.txt" ] && [ -n "$expected_revision" ]; then
-        echo "  would update submodule: ${RH850_WEBAPP_SUBMODULE} (${current_revision:-unknown} -> ${expected_revision})"
+    if [ "$FPGA_QUALIFICATION" = false ]; then
+        source_path="${SCRIPT_DIR}/${RH850_WEBAPP_SUBMODULE}"
+        expected_revision="$(expected_webapp_revision)"
+        current_revision="$(git -C "$source_path" rev-parse HEAD 2>/dev/null || true)"
+        if [ -f "${source_path}/CMakeLists.txt" ] && [ -n "$expected_revision" ] && [ "$current_revision" = "$expected_revision" ]; then
+            echo "  present: ${source_path} ($(source_revision "$source_path"))"
+        elif [ -f "${source_path}/CMakeLists.txt" ] && [ -n "$expected_revision" ]; then
+            echo "  would update submodule: ${RH850_WEBAPP_SUBMODULE} (${current_revision:-unknown} -> ${expected_revision})"
+        else
+            echo "  would initialize submodule: ${RH850_WEBAPP_SUBMODULE}"
+        fi
     else
-        echo "  would initialize submodule: ${RH850_WEBAPP_SUBMODULE}"
+        echo "  FPGA-only qualification mode: RH850 and Web Terminal sources are not required"
     fi
 
     source_path="${SOURCE_ROOT}/fpga-flasher-webapp"
@@ -237,15 +253,20 @@ bootstrap_rh850_webapp_submodule() {
 
 validate_build_inputs() {
     local input
-    for input in \
+    local inputs=(
         "${PACKAGES_FILE}" \
         "${SYSTEM_RUNTIME_PACKAGES_FILE}" \
-        "${APP_SYSTEM_PACKAGES_FILE}" \
-        "${SOURCE_ROOT}/sp6bins/firmware/catalog.json" \
-        "${SOURCE_ROOT}/sp6bins/tools/install_rh850_firmware_catalog.py" \
-        "${SCRIPT_DIR}/apps/rh850-flasher-webapp/CMakeLists.txt" \
-        "${SOURCE_ROOT}/fpga-flasher-webapp/CMakeLists.txt" \
-        "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"; do
+        "${APP_SYSTEM_PACKAGES_FILE}"
+    )
+    if [ "$FPGA_QUALIFICATION" = false ]; then
+        inputs+=(
+            "${SOURCE_ROOT}/sp6bins/firmware/catalog.json"
+            "${SOURCE_ROOT}/sp6bins/tools/install_rh850_firmware_catalog.py"
+            "${SCRIPT_DIR}/apps/rh850-flasher-webapp/CMakeLists.txt"
+            "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"
+        )
+    fi
+    for input in "${inputs[@]}"; do
         [ -f "$input" ] || { echo "ERROR: required build input is missing: $input" >&2; exit 1; }
     done
 
@@ -295,7 +316,7 @@ fi
 }
 
 bootstrap_private_sources
-bootstrap_rh850_webapp_submodule
+[ "$FPGA_QUALIFICATION" = true ] || bootstrap_rh850_webapp_submodule
 validate_build_inputs
 command -v VBoxManage >/dev/null 2>&1 || {
     echo "ERROR: VBoxManage is required to register or export the VM." >&2
@@ -370,9 +391,9 @@ convert_args=(
     --vmname="$VM_NAME"
     --appdir="${OUTPUT_DIR}/app/app"
     --usb="$USB_MODE"
-    --rh850-bluebox
     --force
 )
+[ "$FPGA_QUALIFICATION" = true ] || convert_args+=(--rh850-bluebox)
 [ -f "$FPGA_USB_FILTER_FILE" ] && convert_args+=(--usb-filter-file="$FPGA_USB_FILTER_FILE")
 [ "$EXPORT_OVA" = true ] && convert_args+=(--export-ova)
 "${SCRIPT_DIR}/scripts/04-convert-to-vbox.sh" "${convert_args[@]}"
@@ -382,4 +403,8 @@ if [ "$START_VM" = true ]; then
     VBoxManage startvm "$VM_NAME" --type headless
 fi
 
-echo "Done. Open http://localhost:8000 and launch RH850 Flasher from Applications."
+if [ "$FPGA_QUALIFICATION" = true ]; then
+    echo "Done. Open http://localhost:8000 and launch FPGA Configuration Flasher from Applications."
+else
+    echo "Done. Open http://localhost:8000 and launch RH850 Flasher from Applications."
+fi

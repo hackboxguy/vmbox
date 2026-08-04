@@ -24,6 +24,9 @@ PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher.txt"
 SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher-system.txt"
 APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-generic-flasher.txt"
 FPGA_USB_FILTER_FILE="${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt"
+FPGA_WEBAPP_REVISION="0eebb989834ea77c2f76fbfcdb3d8dd9d209bd3a"
+SP6BINS_REVISION="673c008a44477e2b435ee3ce56c642c9314e3ba6"
+XC3SPROG_REVISION="c19d2b4ac9c6f9526687b9d40966629f6f1ca583"
 
 usage() {
     cat <<EOF
@@ -45,7 +48,7 @@ Usage: $0 [OPTIONS]
   --help, -h         Show this help
 
 Private source layout beside vmbox/:
-  fpga-flasher-webapp/  rh850-flash-tools/  sp6bins/  web-terminal/
+  fpga-flasher-webapp/  rh850-flash-tools/  sp6bins/  xc3sprog/  web-terminal/
 
 Missing sibling repositories are cloned from their configured private GitHub
 origins before the build. The RH850 webapp submodule is initialized as needed.
@@ -83,9 +86,10 @@ OUTPUT_DIR="$(realpath -m "$OUTPUT_DIR")"
 declare -A PRIVATE_SOURCE_URLS=(
     [rh850-flash-tools]="https://github.com/hackboxguy/rh850-flash-tools.git"
     [sp6bins]="https://github.com/hackboxguy/sp6bins.git"
+    [xc3sprog]="https://github.com/hackboxguy/xc3sprog.git"
     [web-terminal]="https://github.com/hackboxguy/web-terminal.git"
 )
-PRIVATE_SOURCE_DIRS=(rh850-flash-tools sp6bins web-terminal)
+PRIVATE_SOURCE_DIRS=(rh850-flash-tools sp6bins xc3sprog web-terminal)
 RH850_WEBAPP_SUBMODULE="apps/rh850-flasher-webapp"
 
 source_revision() {
@@ -98,7 +102,7 @@ expected_webapp_revision() {
 }
 
 print_build_plan() {
-    local source_dir source_path parent_dir available_mb expected_revision current_revision fpga_catalogue
+    local source_dir source_path parent_dir available_mb expected_revision current_revision fpga_catalogue enabled_profiles
 
     echo "=================================================="
     echo " Generic Flasher VMBOX dry run"
@@ -133,7 +137,7 @@ print_build_plan() {
 
     source_path="${SOURCE_ROOT}/fpga-flasher-webapp"
     if [ -f "${source_path}/CMakeLists.txt" ]; then
-        echo "  present: ${source_path} ($(source_revision "$source_path"))"
+        echo "  present: ${source_path} ($(source_revision "$source_path"), expected ${FPGA_WEBAPP_REVISION:0:7})"
     else
         echo "  ERROR: required FPGA webapp source is missing: ${source_path}"
     fi
@@ -141,6 +145,10 @@ print_build_plan() {
     fpga_catalogue="${SOURCE_ROOT}/sp6bins/firmware/fpga/catalog.json"
     if [ -f "$fpga_catalogue" ]; then
         echo "FPGA profiles: private catalogue present (${fpga_catalogue})"
+        if command -v jq >/dev/null 2>&1; then
+            enabled_profiles="$(jq -r '.profiles[] | select(.enabled == true) | .id' "$fpga_catalogue" 2>/dev/null || true)"
+            [ -n "$enabled_profiles" ] && echo "FPGA enabled profiles: ${enabled_profiles//$'\n'/, }" || echo "FPGA enabled profiles: none (hardware qualification pending)"
+        fi
     else
         echo "FPGA profiles: Phase-1 fixture mode only (no private hardware catalogue)"
     fi
@@ -240,10 +248,44 @@ validate_build_inputs() {
         "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"; do
         [ -f "$input" ] || { echo "ERROR: required build input is missing: $input" >&2; exit 1; }
     done
+
+    validate_fpga_build_inputs
+}
+
+validate_fpga_build_inputs() {
+    local input
+    for input in \
+        "${SOURCE_ROOT}/sp6bins/tools/install_fpga_flasher_inputs.py" \
+        "${SOURCE_ROOT}/sp6bins/firmware/fpga/catalog.json" \
+        "${SOURCE_ROOT}/sp6bins/firmware/fpga/approved-artifacts.json" \
+        "${SOURCE_ROOT}/sp6bins/firmware/fpga/runtime-config.json" \
+        "${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt" \
+        "${SOURCE_ROOT}/xc3sprog/CMakeLists.txt" \
+        "${SOURCE_ROOT}/fpga-flasher-webapp/CMakeLists.txt"; do
+        [ -f "$input" ] || { echo "ERROR: required FPGA build input is missing: $input" >&2; exit 1; }
+    done
+
+    validate_pinned_source "${SOURCE_ROOT}/fpga-flasher-webapp" "$FPGA_WEBAPP_REVISION"
+    validate_pinned_source "${SOURCE_ROOT}/sp6bins" "$SP6BINS_REVISION"
+    validate_pinned_source "${SOURCE_ROOT}/xc3sprog" "$XC3SPROG_REVISION"
+}
+
+validate_pinned_source() {
+    local source_path="$1" expected_revision="$2" actual_revision
+    actual_revision="$(git -C "$source_path" rev-parse HEAD 2>/dev/null || true)"
+    [ "$actual_revision" = "$expected_revision" ] || {
+        echo "ERROR: source is not at the reviewed revision: ${source_path} (have ${actual_revision:-unknown}, expected ${expected_revision})" >&2
+        exit 1
+    }
+    [ -z "$(git -C "$source_path" status --porcelain)" ] || {
+        echo "ERROR: source has uncommitted changes: ${source_path}" >&2
+        exit 1
+    }
 }
 
 if [ "$DRY_RUN" = true ]; then
     print_build_plan
+    validate_fpga_build_inputs
     exit 0
 fi
 

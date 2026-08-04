@@ -42,14 +42,13 @@ import hmac
 import logging
 import shutil
 from logging.handlers import RotatingFileHandler
-import urllib.request
-import urllib.error
+import http.client
 from datetime import datetime, timedelta
 from functools import wraps
 import io
 import zipfile
 import glob as glob_module
-from flask import Flask, jsonify, render_template, request, Response, session, redirect, url_for, send_file
+from flask import Flask, jsonify, render_template, request, Response, session, redirect, url_for, send_file, stream_with_context
 
 app = Flask(__name__)
 SESSION_TIMEOUT = timedelta(hours=4)
@@ -109,6 +108,20 @@ APP_MANIFEST_FILE = '/app/manifest.json'
 _app_port_cache = {}
 _app_port_cache_time = 0
 APP_PORT_CACHE_TTL = 60  # Cache TTL in seconds
+
+# The generic proxy is deliberately conservative.  The FPGA application needs
+# a larger upload allowance and a longer transfer window, but those bounds are
+# still finite so an authenticated browser cannot turn the system-management
+# process into an unbounded relay.
+APP_PROXY_DEFAULT_MAX_BODY_BYTES = 1024 * 1024
+APP_PROXY_FPGA_UPLOAD_MAX_BODY_BYTES = 32 * 1024 * 1024
+APP_PROXY_DEFAULT_TIMEOUT_SECONDS = 30
+APP_PROXY_FPGA_TRANSFER_TIMEOUT_SECONDS = 300
+APP_PROXY_STREAM_CHUNK_BYTES = 64 * 1024
+HOP_BY_HOP_HEADERS = {
+    'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+    'te', 'trailer', 'transfer-encoding', 'upgrade'
+}
 
 # CPU stats tracking for percentage calculation
 _prev_cpu_stats = None
@@ -206,6 +219,31 @@ def get_app_ports():
     return {}
 
 
+def _proxy_limits(app_name, path):
+    """Return the body bound and backend timeout for one proxied request."""
+    if app_name == 'fpga-flasher-webapp':
+        if path.startswith('/api/v1/artifacts') or path.startswith('/api/v1/backups/'):
+            return APP_PROXY_FPGA_UPLOAD_MAX_BODY_BYTES, APP_PROXY_FPGA_TRANSFER_TIMEOUT_SECONDS
+    return APP_PROXY_DEFAULT_MAX_BODY_BYTES, APP_PROXY_DEFAULT_TIMEOUT_SECONDS
+
+
+def _proxy_error(status, message):
+    return Response(json.dumps({'error': message}), status=status, mimetype='application/json')
+
+
+def _validate_fpga_proxy_write():
+    """Enforce the proxy half of the FPGA application's browser-write contract."""
+    origin = request.headers.get('Origin')
+    expected_origin = request.host_url.rstrip('/')
+    if origin != expected_origin:
+        return _proxy_error(403, 'FPGA write requests must be same-origin.')
+    if not request.headers.get('X-CSRF-Token'):
+        return _proxy_error(403, 'FPGA write requests require X-CSRF-Token.')
+    if request.headers.get('X-Requested-With') != 'XMLHttpRequest':
+        return _proxy_error(403, 'FPGA write requests require X-Requested-With.')
+    return None
+
+
 def proxy_request_to_app(app_name, path):
     """
     Proxy an HTTP request to a backend application.
@@ -234,58 +272,59 @@ def proxy_request_to_app(app_name, path):
             mimetype='application/json'
         )
 
-    # Build target URL
-    target_url = f'http://127.0.0.1:{port}{path}'
+    max_body_bytes, timeout_seconds = _proxy_limits(app_name, path)
+    if request.method in ['POST', 'PUT', 'PATCH', 'DELETE']:
+        if request.content_length is None:
+            return _proxy_error(411, 'A bounded Content-Length is required for proxied writes.')
+        if request.content_length > max_body_bytes:
+            return _proxy_error(413, 'Request body exceeds this application proxy limit.')
 
+    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=timeout_seconds)
     try:
-        # Create request with same method and headers
-        req = urllib.request.Request(
-            target_url,
-            data=request.get_data() if request.method in ['POST', 'PUT', 'PATCH', 'DELETE'] else None,
-            method=request.method
-        )
-
-        # Forward relevant headers
-        for header in ['Content-Type', 'Accept', 'Accept-Language', 'Accept-Encoding']:
+        # Do not pass browser-controlled forwarding/identity headers through.
+        # The selected allow-list is sufficient for the documented app APIs.
+        connection.putrequest(request.method, path, skip_host=True, skip_accept_encoding=True)
+        connection.putheader('Host', f'127.0.0.1:{port}')
+        for header in ['Content-Type', 'Content-Length', 'Accept', 'Accept-Language',
+                       'Range', 'If-None-Match', 'If-Modified-Since', 'Idempotency-Key',
+                       'X-CSRF-Token', 'X-Requested-With']:
             if header in request.headers:
-                req.add_header(header, request.headers[header])
-        req.add_header('X-VMBOX-System-Proxy', '1')
+                connection.putheader(header, request.headers[header])
+        connection.putheader('X-VMBOX-System-Proxy', '1')
+        connection.putheader('X-VMBOX-Actor', session['username'])
+        connection.endheaders()
 
-        # Make request to backend
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            content = resp.read()
-            response_headers = dict(resp.headers)
+        if request.method in ['POST', 'PUT', 'PATCH', 'DELETE']:
+            while True:
+                chunk = request.stream.read(APP_PROXY_STREAM_CHUNK_BYTES)
+                if not chunk:
+                    break
+                connection.send(chunk)
 
-            # Create Flask response
-            flask_resp = Response(content, status=resp.status)
+        backend_response = connection.getresponse()
+        response_headers = backend_response.getheaders()
 
-            # Copy headers (except hop-by-hop headers)
-            skip_headers = {'transfer-encoding', 'connection', 'keep-alive'}
-            for key, value in response_headers.items():
-                if key.lower() not in skip_headers:
-                    flask_resp.headers[key] = value
+        def stream_backend_response():
+            try:
+                while True:
+                    chunk = backend_response.read(APP_PROXY_STREAM_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                connection.close()
 
-            return flask_resp
-
-    except urllib.error.HTTPError as e:
-        content = e.read() if e.fp else b''
-        flask_resp = Response(content, status=e.code)
-        content_type = e.headers.get('Content-Type') if e.headers else None
-        if content_type:
-            flask_resp.headers['Content-Type'] = content_type
+        flask_resp = Response(stream_with_context(stream_backend_response()), status=backend_response.status)
+        for key, value in response_headers:
+            if key.lower() not in HOP_BY_HOP_HEADERS:
+                flask_resp.headers.add(key, value)
         return flask_resp
-    except urllib.error.URLError as e:
-        return Response(
-            json.dumps({'error': f'Cannot connect to {app_name}: {str(e.reason)}'}),
-            status=502,
-            mimetype='application/json'
-        )
-    except Exception as e:
-        return Response(
-            json.dumps({'error': f'Proxy error: {str(e)}'}),
-            status=500,
-            mimetype='application/json'
-        )
+    except socket.timeout:
+        connection.close()
+        return _proxy_error(504, f'Application timed out: {app_name}')
+    except (OSError, http.client.HTTPException) as error:
+        connection.close()
+        return _proxy_error(502, f'Cannot connect to {app_name}: {error}')
 
 
 def verify_shadow_password(username, password):
@@ -1489,6 +1528,11 @@ def app_proxy_write(app_name, path):
     """
     Reverse proxy for write operations (POST, PUT, DELETE, PATCH).
     """
+    if app_name == 'fpga-flasher-webapp':
+        rejection = _validate_fpga_proxy_write()
+        if rejection is not None:
+            return rejection
+
     forward_path = '/' + path if path else '/'
 
     if request.query_string:

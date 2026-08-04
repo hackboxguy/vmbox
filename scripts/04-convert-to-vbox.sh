@@ -32,6 +32,7 @@ USB_STORAGE_IDS=""    # Comma-separated USB storage vendor IDs (e.g., 8564,1234)
 ENABLE_PCAN=false     # Enable PCAN-USB adapter filter (VID 0c72)
 ENABLE_JETSON=false   # Enable NVIDIA Jetson recovery-mode filter (VID 0955)
 ENABLE_RH850_BLUEBOX=false # Enable exact EEHB Bluebox filter (0403:a9a0)
+USB_FILTER_FILE=""        # Exact, profile-generated filters: name|vendor_id|product_id
 HOST_SERIAL=""        # Host serial port to pass through (e.g., /dev/ttyS0, COM1)
 
 # Port forwarding (with defaults in case config.sh doesn't define them)
@@ -48,6 +49,56 @@ WEBTERMINAL_GUEST_PORT="${DEFAULT_WEBTERMINAL_PORT##*:}"
 # App ports (populated from manifest)
 declare -a APP_PORTS=()
 APP_MANIFEST=""
+declare -a PROFILE_USB_FILTERS=()
+
+load_profile_usb_filters() {
+    local line name vendor_id product_id extra
+    [ -n "$USB_FILTER_FILE" ] || return 0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in ''|'#'*) continue ;; esac
+        IFS='|' read -r name vendor_id product_id extra <<< "$line"
+        if [ -z "$name" ] || [ -n "$extra" ] || ! [[ "$vendor_id" =~ ^[[:xdigit:]]{4}$ ]] || ! [[ "$product_id" =~ ^[[:xdigit:]]{4}$ ]]; then
+            error "Invalid exact USB filter in ${USB_FILTER_FILE}: ${line}"
+        fi
+        PROFILE_USB_FILTERS+=("${name}|${vendor_id^^}|${product_id^^}")
+    done < "$USB_FILTER_FILE"
+}
+
+profile_filter_claims_vendor() {
+    local vendor_id="${1^^}" spec name filter_vendor_id product_id
+    for spec in "${PROFILE_USB_FILTERS[@]}"; do
+        IFS='|' read -r name filter_vendor_id product_id <<< "$spec"
+        if [ "$filter_vendor_id" = "$vendor_id" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+add_exact_profile_usb_filters() {
+    local next_filter="$1" spec name vendor_id product_id
+    for spec in "${PROFILE_USB_FILTERS[@]}"; do
+        IFS='|' read -r name vendor_id product_id <<< "$spec"
+        VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
+            --name "$name" --vendorid "$vendor_id" --productid "$product_id" \
+            --active yes &>/dev/null || true
+        info "  Filter: ${name} (VID ${vendor_id}, PID ${product_id})"
+        next_filter=$((next_filter + 1))
+    done
+    PROFILE_USB_NEXT_FILTER="$next_filter"
+}
+
+add_default_usb_filter() {
+    local filter_index="$1" name="$2" vendor_id="$3"
+    if profile_filter_claims_vendor "$vendor_id"; then
+        info "  Filter suppressed: ${name} (VID ${vendor_id}) overlaps an exact profile filter"
+        return 0
+    fi
+    VBoxManage usbfilter add "$filter_index" --target "$VM_NAME" \
+        --name "$name" --vendorid "$vendor_id" --active yes &>/dev/null || true
+    info "  Filter: ${name} (VID ${vendor_id})"
+}
 
 show_usage() {
     cat <<EOF
@@ -78,6 +129,9 @@ Optional Arguments:
                         Needed to flash a Jetson from inside the VM. Use with --usb=3.
   --rh850-bluebox       Enable exact EEHB Bluebox filter (VID 0403, PID a9a0).
                         Avoids claiming unrelated FTDI devices.
+  --usb-filter-file=FILE
+                        Add exact profile-generated filters from FILE. Each
+                        non-comment line is name|VID|PID (four hex digits).
   --hostserial=PORT     Pass through host serial port to VM COM1
                         Linux: /dev/ttyS0, /dev/ttyS1, etc.
                         Windows: COM1, COM2, etc.
@@ -136,6 +190,7 @@ parse_arguments() {
             --pcan)         ENABLE_PCAN=true ;;
             --jetson)       ENABLE_JETSON=true ;;
             --rh850-bluebox) ENABLE_RH850_BLUEBOX=true ;;
+            --usb-filter-file=*) USB_FILTER_FILE="${arg#*=}" ;;
             --hostserial=*) HOST_SERIAL="${arg#*=}" ;;
             --export-ova)   EXPORT_OVA=true ;;
             --force)        FORCE=true ;;
@@ -149,6 +204,10 @@ parse_arguments() {
 
     INPUT_IMAGE="$(to_absolute_path "$INPUT_IMAGE")"
     validate_file "$INPUT_IMAGE" "Input image"
+    if [ -n "$USB_FILTER_FILE" ]; then
+        USB_FILTER_FILE="$(to_absolute_path "$USB_FILTER_FILE")"
+        validate_file "$USB_FILTER_FILE" "USB filter file"
+    fi
 
     # Set output directory
     if [ -z "$OUTPUT_DIR" ]; then
@@ -452,7 +511,9 @@ configure_usb() {
     # Add USB device filters for common serial adapters
     # These filters will auto-attach matching devices when plugged in
 
-    local next_filter=0
+    load_profile_usb_filters
+    add_exact_profile_usb_filters 0
+    local next_filter="$PROFILE_USB_NEXT_FILTER"
 
     # A generic FTDI filter claims every FTDI device. The RH850 appliance
     # explicitly selects only the Bluebox, while general VMBOX images retain
@@ -465,60 +526,32 @@ configure_usb() {
             --active yes &>/dev/null || true
         info "  Filter: EEHB Bluebox (VID 0403, PID a9a0)"
     else
-        VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
-            --name "FTDI Serial" \
-            --vendorid 0403 \
-            --active yes &>/dev/null || true
-        info "  Filter: FTDI (VID 0403)"
+        add_default_usb_filter "$next_filter" "FTDI Serial" "0403"
     fi
     next_filter=$((next_filter + 1))
 
     # Silicon Labs CP210x - VID 10C4
-    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
-        --name "CP210x Serial" \
-        --vendorid 10C4 \
-        --active yes &>/dev/null || true
-    info "  Filter: Silicon Labs CP210x (VID 10C4)"
+    add_default_usb_filter "$next_filter" "CP210x Serial" "10C4"
     next_filter=$((next_filter + 1))
 
     # WCH CH340/CH341 - VID 1A86
-    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
-        --name "CH340/CH341 Serial" \
-        --vendorid 1A86 \
-        --active yes &>/dev/null || true
-    info "  Filter: WCH CH340/CH341 (VID 1A86)"
+    add_default_usb_filter "$next_filter" "CH340/CH341 Serial" "1A86"
     next_filter=$((next_filter + 1))
 
     # Prolific PL2303 - VID 067B
-    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
-        --name "PL2303 Serial" \
-        --vendorid 067B \
-        --active yes &>/dev/null || true
-    info "  Filter: Prolific PL2303 (VID 067B)"
+    add_default_usb_filter "$next_filter" "PL2303 Serial" "067B"
     next_filter=$((next_filter + 1))
 
     # Arduino boards (MKR, Uno, Leonardo, etc.) - VID 2341
-    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
-        --name "Arduino" \
-        --vendorid 2341 \
-        --active yes &>/dev/null || true
-    info "  Filter: Arduino (VID 2341)"
+    add_default_usb_filter "$next_filter" "Arduino" "2341"
     next_filter=$((next_filter + 1))
 
     # Android ADB devices - VID 18d1 (Google/AOSP, includes Harman IVI)
-    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
-        --name "Android ADB" \
-        --vendorid 18d1 \
-        --active yes &>/dev/null || true
-    info "  Filter: Android ADB (VID 18d1)"
+    add_default_usb_filter "$next_filter" "Android ADB" "18d1"
     next_filter=$((next_filter + 1))
 
     # CANable USB-CAN adapter (gs_usb driver) - VID 1d50
-    VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
-        --name "CANable" \
-        --vendorid 1d50 \
-        --active yes &>/dev/null || true
-    info "  Filter: CANable (VID 1d50)"
+    add_default_usb_filter "$next_filter" "CANable" "1d50"
     next_filter=$((next_filter + 1))
 
     # NVIDIA Jetson in recovery mode (APX / RCM) - VID 0955 (opt-in via --jetson)

@@ -23,6 +23,7 @@ DRY_RUN=false
 PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher.txt"
 SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher-system.txt"
 APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-generic-flasher.txt"
+FPGA_USB_FILTER_FILE="${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt"
 
 usage() {
     cat <<EOF
@@ -44,7 +45,7 @@ Usage: $0 [OPTIONS]
   --help, -h         Show this help
 
 Private source layout beside vmbox/:
-  rh850-flash-tools/  sp6bins/  web-terminal/
+  fpga-flasher-webapp/  rh850-flash-tools/  sp6bins/  web-terminal/
 
 Missing sibling repositories are cloned from their configured private GitHub
 origins before the build. The RH850 webapp submodule is initialized as needed.
@@ -97,7 +98,7 @@ expected_webapp_revision() {
 }
 
 print_build_plan() {
-    local source_dir source_path parent_dir available_mb expected_revision current_revision
+    local source_dir source_path parent_dir available_mb expected_revision current_revision fpga_catalogue
 
     echo "=================================================="
     echo " Generic Flasher VMBOX dry run"
@@ -128,6 +129,25 @@ print_build_plan() {
         echo "  would update submodule: ${RH850_WEBAPP_SUBMODULE} (${current_revision:-unknown} -> ${expected_revision})"
     else
         echo "  would initialize submodule: ${RH850_WEBAPP_SUBMODULE}"
+    fi
+
+    source_path="${SOURCE_ROOT}/fpga-flasher-webapp"
+    if [ -f "${source_path}/CMakeLists.txt" ]; then
+        echo "  present: ${source_path} ($(source_revision "$source_path"))"
+    else
+        echo "  ERROR: required FPGA webapp source is missing: ${source_path}"
+    fi
+
+    fpga_catalogue="${SOURCE_ROOT}/sp6bins/firmware/fpga/catalog.json"
+    if [ -f "$fpga_catalogue" ]; then
+        echo "FPGA profiles: private catalogue present (${fpga_catalogue})"
+    else
+        echo "FPGA profiles: Phase-1 fixture mode only (no private hardware catalogue)"
+    fi
+    if [ -f "$FPGA_USB_FILTER_FILE" ]; then
+        echo "FPGA USB filters: exact profile-generated filters present (${FPGA_USB_FILTER_FILE})"
+    else
+        echo "FPGA USB filters: no hardware profiles enabled"
     fi
 
     if command -v VBoxManage >/dev/null 2>&1; then
@@ -216,6 +236,7 @@ validate_build_inputs() {
         "${SOURCE_ROOT}/sp6bins/firmware/catalog.json" \
         "${SOURCE_ROOT}/sp6bins/tools/install_rh850_firmware_catalog.py" \
         "${SCRIPT_DIR}/apps/rh850-flasher-webapp/CMakeLists.txt" \
+        "${SOURCE_ROOT}/fpga-flasher-webapp/CMakeLists.txt" \
         "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"; do
         [ -f "$input" ] || { echo "ERROR: required build input is missing: $input" >&2; exit 1; }
     done
@@ -310,6 +331,7 @@ convert_args=(
     --rh850-bluebox
     --force
 )
+[ -f "$FPGA_USB_FILTER_FILE" ] && convert_args+=(--usb-filter-file="$FPGA_USB_FILTER_FILE")
 [ "$EXPORT_OVA" = true ] && convert_args+=(--export-ova)
 "${SCRIPT_DIR}/scripts/04-convert-to-vbox.sh" "${convert_args[@]}"
 

@@ -1,5 +1,9 @@
 # Packages installed into the immutable rootfs before application packaging.
 # Source paths are intentionally relative to this file: private source trees
 # remain siblings of the VMBOX checkout and are never copied into VMBOX.
+# FPGA programming backends are added later as separate, pinned source builds.
+# Their shared runtime libraries are installed now; compiler headers belong to
+# the individual backend hook and are removed after the backend is built.
+packages/fpga-runtime-dependencies-hook.sh
 packages/rh850-flash-tools-hook.sh|file://../rh850-flash-tools|local|/usr|cmake
 packages/rh850-firmware-catalog-hook.sh|file://../sp6bins|local|/usr|python3

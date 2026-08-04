@@ -5,7 +5,7 @@
 # Their shared runtime libraries are installed now; compiler headers belong to
 # the individual backend hook and are removed after the backend is built.
 packages/fpga-runtime-dependencies-hook.sh
-packages/fpga-xc3sprog-hook.sh|file://../xc3sprog|dfa67902070e9491cbda2f3ed11902ef4e85fcaf|/usr|cmake,make,g++,pkgconf,libusb-compat-dev,libftdi1-dev,libgpiod-dev,linux-headers
+packages/fpga-xc3sprog-hook.sh|file://../xc3sprog|c8200917a635571f094069acc6d57cc2204e264c|/usr|cmake,make,g++,pkgconf,libusb-compat-dev,libftdi1-dev,libgpiod-dev,linux-headers
 packages/fpga-firmware-catalog-hook.sh|file://../sp6bins|local|/usr|python3
 packages/rh850-flash-tools-hook.sh|file://../rh850-flash-tools|local|/usr|cmake
 packages/rh850-firmware-catalog-hook.sh|file://../sp6bins|local|/usr|python3

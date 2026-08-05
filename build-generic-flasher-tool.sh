@@ -14,6 +14,7 @@ OS_PART_SIZE="500M"
 DATA_PART_SIZE="4096M"
 APP_PART_SIZE="512M"
 USB_MODE="1"
+USB_MODE_EXPLICIT=false
 VM_NAME=""
 CLEAN=false
 EXPORT_OVA=true
@@ -26,7 +27,7 @@ SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher-system.txt"
 APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-generic-flasher.txt"
 FPGA_USB_FILTER_FILE="${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt"
 FPGA_WEBAPP_REVISION="3f1ee46c6dd97592e09d0a0c09ae497f4db09ab3"
-SP6BINS_REVISION="5a4aafd1d692210166a9a9e5e6bdd98f4e46fc2e"
+SP6BINS_REVISION="e4ea13a6cf789ce6e976a9dd6e822387264240e3"
 XC3SPROG_REVISION="1392bc420db9c5d9506ee93c2fca802cadb69b9f"
 FXLOAD_REVISION="af574c391c70b3445fb141503a7c54db99508069"
 OPENFPGALOADER_REVISION="1fc75395385ae7f3d31bfdd6cba0467e0afb4d25"
@@ -73,7 +74,7 @@ for arg in "$@"; do
         --ospart=*) OS_PART_SIZE="${arg#*=}" ;;
         --datapart=*) DATA_PART_SIZE="${arg#*=}" ;;
         --apppart=*) APP_PART_SIZE="${arg#*=}" ;;
-        --usb=*) USB_MODE="${arg#*=}" ;;
+        --usb=*) USB_MODE="${arg#*=}"; USB_MODE_EXPLICIT=true ;;
         --clean) CLEAN=true ;;
         --dry-run) DRY_RUN=true ;;
         --fpga-qualification) FPGA_QUALIFICATION=true ;;
@@ -83,6 +84,12 @@ for arg in "$@"; do
         *) echo "ERROR: unknown option: $arg" >&2; usage >&2; exit 2 ;;
     esac
 done
+
+# FPGA JTAG adapters such as the Arty Z7's FT2232 are high-speed devices.
+# Qualification images default to EHCI, but an explicit caller choice is kept.
+if [ "$FPGA_QUALIFICATION" = true ] && [ "$USB_MODE_EXPLICIT" = false ]; then
+    USB_MODE="2"
+fi
 
 case "$USB_MODE" in 1|2|3) ;; *) echo "ERROR: --usb must be 1, 2, or 3" >&2; exit 2 ;; esac
 [ -n "$VM_NAME" ] || VM_NAME="generic-flasher-v${VERSION}"
@@ -416,6 +423,7 @@ convert_args=(
 )
 [ "$FPGA_QUALIFICATION" = true ] || convert_args+=(--rh850-bluebox)
 [ -f "$FPGA_USB_FILTER_FILE" ] && convert_args+=(--usb-filter-file="$FPGA_USB_FILTER_FILE")
+[ "$FPGA_QUALIFICATION" = true ] && convert_args+=(--exact-usb-filters-only)
 [ "$EXPORT_OVA" = true ] && convert_args+=(--export-ova)
 "${SCRIPT_DIR}/scripts/04-convert-to-vbox.sh" "${convert_args[@]}"
 

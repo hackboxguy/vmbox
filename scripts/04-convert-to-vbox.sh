@@ -33,6 +33,7 @@ ENABLE_PCAN=false     # Enable PCAN-USB adapter filter (VID 0c72)
 ENABLE_JETSON=false   # Enable NVIDIA Jetson recovery-mode filter (VID 0955)
 ENABLE_RH850_BLUEBOX=false # Enable exact EEHB Bluebox filter (0403:a9a0)
 USB_FILTER_FILE=""        # Exact, profile-generated filters: name|vendor_id|product_id
+EXACT_USB_FILTERS_ONLY=false # Do not add generic VID-wide filters
 HOST_SERIAL=""        # Host serial port to pass through (e.g., /dev/ttyS0, COM1)
 
 # Port forwarding (with defaults in case config.sh doesn't define them)
@@ -132,6 +133,9 @@ Optional Arguments:
   --usb-filter-file=FILE
                         Add exact profile-generated filters from FILE. Each
                         non-comment line is name|VID|PID (four hex digits).
+  --exact-usb-filters-only
+                        Add only filters from --usb-filter-file; do not add
+                        generic vendor-wide serial/USB filters.
   --hostserial=PORT     Pass through host serial port to VM COM1
                         Linux: /dev/ttyS0, /dev/ttyS1, etc.
                         Windows: COM1, COM2, etc.
@@ -191,6 +195,7 @@ parse_arguments() {
             --jetson)       ENABLE_JETSON=true ;;
             --rh850-bluebox) ENABLE_RH850_BLUEBOX=true ;;
             --usb-filter-file=*) USB_FILTER_FILE="${arg#*=}" ;;
+            --exact-usb-filters-only) EXACT_USB_FILTERS_ONLY=true ;;
             --hostserial=*) HOST_SERIAL="${arg#*=}" ;;
             --export-ova)   EXPORT_OVA=true ;;
             --force)        FORCE=true ;;
@@ -514,6 +519,11 @@ configure_usb() {
     load_profile_usb_filters
     add_exact_profile_usb_filters 0
     local next_filter="$PROFILE_USB_NEXT_FILTER"
+
+    if [ "$EXACT_USB_FILTERS_ONLY" = "true" ]; then
+        info "  Generic USB filters suppressed: exact profile filters only"
+        return 0
+    fi
 
     # A generic FTDI filter claims every FTDI device. The RH850 appliance
     # explicitly selects only the Bluebox, while general VMBOX images retain

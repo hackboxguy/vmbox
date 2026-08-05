@@ -27,7 +27,8 @@ APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-generic-flasher.txt"
 FPGA_USB_FILTER_FILE="${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt"
 FPGA_WEBAPP_REVISION="3f1ee46c6dd97592e09d0a0c09ae497f4db09ab3"
 SP6BINS_REVISION="5a4aafd1d692210166a9a9e5e6bdd98f4e46fc2e"
-XC3SPROG_REVISION="2337bbf9378dd4bae63684103fcc1ff68125f354"
+XC3SPROG_REVISION="1392bc420db9c5d9506ee93c2fca802cadb69b9f"
+FXLOAD_REVISION="af574c391c70b3445fb141503a7c54db99508069"
 OPENFPGALOADER_REVISION="1fc75395385ae7f3d31bfdd6cba0467e0afb4d25"
 
 usage() {
@@ -165,6 +166,12 @@ print_build_plan() {
     else
         echo "  ERROR: required pinned OpenFPGALoader source is missing: ${source_path}"
     fi
+    source_path="${SOURCE_ROOT}/fxload"
+    if [ -f "${source_path}/CMakeLists.txt" ] && [ -f "${source_path}/CLI11/LICENSE" ]; then
+        echo "  present: ${source_path} ($(source_revision "$source_path"), expected ${FXLOAD_REVISION:0:7})"
+    else
+        echo "  ERROR: required pinned FXLoad source is missing or incomplete: ${source_path}"
+    fi
 
     fpga_catalogue="${SOURCE_ROOT}/sp6bins/firmware/fpga/catalog.json"
     if [ -f "$fpga_catalogue" ]; then
@@ -291,6 +298,8 @@ validate_fpga_build_inputs() {
         "${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt" \
         "${SOURCE_ROOT}/xc3sprog/CMakeLists.txt" \
         "${SOURCE_ROOT}/openFPGALoader/CMakeLists.txt" \
+        "${SOURCE_ROOT}/fxload/CMakeLists.txt" \
+        "${SOURCE_ROOT}/fxload/CLI11/LICENSE" \
         "${SOURCE_ROOT}/sp6bins/src/scripts/fpga-openfpgaloader-artyz7-backend.sh" \
         "${SOURCE_ROOT}/fpga-flasher-webapp/CMakeLists.txt"; do
         [ -f "$input" ] || { echo "ERROR: required FPGA build input is missing: $input" >&2; exit 1; }
@@ -300,6 +309,7 @@ validate_fpga_build_inputs() {
     validate_pinned_source "${SOURCE_ROOT}/sp6bins" "$SP6BINS_REVISION"
     validate_pinned_source "${SOURCE_ROOT}/xc3sprog" "$XC3SPROG_REVISION"
     validate_pinned_source "${SOURCE_ROOT}/openFPGALoader" "$OPENFPGALOADER_REVISION"
+    validate_pinned_source "${SOURCE_ROOT}/fxload" "$FXLOAD_REVISION"
 }
 
 validate_pinned_source() {

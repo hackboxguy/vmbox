@@ -121,12 +121,18 @@ def init_app_directories(app_name: str, manifest: dict):
     for subdir in manifest.get("data_dirs", []):
         os.makedirs(f"{data_dir}/{subdir}", exist_ok=True)
 
-    # Copy default configs if they don't exist
+    # Copy defaults that are absent or invalid empty files.  An empty JSON
+    # runtime file cannot be a valid user configuration, and leaving it in
+    # place makes the managed app fail during startup.
     for config in manifest.get("config_files", []):
         source = f"{APP_DIR}/{app_name}/{config.get('source', '')}"
         dest = f"{config_dir}/{config.get('dest', '')}"
 
-        if os.path.exists(source) and not os.path.exists(dest):
+        destination_needs_seed = (
+            not os.path.exists(dest)
+            or (os.path.isfile(dest) and os.path.getsize(dest) == 0)
+        )
+        if os.path.exists(source) and destination_needs_seed:
             shutil.copy2(source, dest)
             logger.info(f"Copied default config: {dest}")
 

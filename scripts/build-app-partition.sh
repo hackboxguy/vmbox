@@ -640,8 +640,10 @@ fi
 # Create directories
 mkdir -p "$APP_DATA_DIR" "$APP_CONFIG_DIR" /run/app /var/log/app
 
-# Copy default config if not exists
-if [ -f "${APP_DIR}/etc/config.json.default" ] && [ ! -f "$APP_CONFIG_DIR/config.json" ]; then
+# Copy the default when the runtime config is absent or an invalid empty file.
+# A zero-byte JSON file cannot be a deliberate usable configuration and would
+# otherwise make the app crash before it can serve a diagnostic response.
+if [ -f "${APP_DIR}/etc/config.json.default" ] && { [ ! -e "$APP_CONFIG_DIR/config.json" ] || { [ -f "$APP_CONFIG_DIR/config.json" ] && [ ! -s "$APP_CONFIG_DIR/config.json" ]; }; }; then
     cp "${APP_DIR}/etc/config.json.default" "$APP_CONFIG_DIR/config.json"
     echo "Initialized default config for ${APP_NAME}"
 fi

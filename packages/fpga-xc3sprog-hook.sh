@@ -11,9 +11,9 @@ BUILD_DIR=/tmp/fpga-xc3sprog-build
     exit 1
 }
 
-# These are runtime tools, not compiler dependencies.  The base image already
-# provides lsusb; fxload is required for the XPC2 firmware bootstrap.
-apk add --no-cache fxload@testing
+# fxload is a trusted runtime dependency of the XPC2 firmware bootstrap. It
+# is installed by the preceding pinned source hook, never from Alpine edge.
+[ -x /usr/bin/fxload ] || { echo "ERROR: pinned fxload is unavailable" >&2; exit 1; }
 
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \

@@ -27,10 +27,10 @@ SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher-system.txt"
 APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-generic-flasher.txt"
 FPGA_USB_FILTER_FILE="${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt"
 FPGA_WEBAPP_REVISION="495eba075dae0ff375446ce5e196754b2d90c005"
-SP6BINS_REVISION="de53575eace17d8ce0b300fbd8771130eb5ee5f6"
-XC3SPROG_REVISION="1392bc420db9c5d9506ee93c2fca802cadb69b9f"
+SP6BINS_REVISION="afc1eb4348db65d09e6e8c675a30c2c02b6b0e70"
+XC3SPROG_REVISION="3df04f6d28b0f7a41239abaf824cc7f3cff7cff1"
 FXLOAD_REVISION="af574c391c70b3445fb141503a7c54db99508069"
-OPENFPGALOADER_REVISION="1fc75395385ae7f3d31bfdd6cba0467e0afb4d25"
+OPENFPGALOADER_REVISION="c166f654e2124cd72ec56698b27b7acdbc67a541"
 
 usage() {
     cat <<EOF
@@ -308,6 +308,7 @@ validate_fpga_build_inputs() {
         "${SOURCE_ROOT}/fxload/CMakeLists.txt" \
         "${SOURCE_ROOT}/fxload/CLI11/LICENSE" \
         "${SOURCE_ROOT}/sp6bins/src/scripts/fpga-openfpgaloader-artyz7-backend.sh" \
+        "${SOURCE_ROOT}/sp6bins/src/scripts/fpga-openfpgaloader-lattice45-usb-blaster-backend.sh" \
         "${SOURCE_ROOT}/fpga-flasher-webapp/CMakeLists.txt"; do
         [ -f "$input" ] || { echo "ERROR: required FPGA build input is missing: $input" >&2; exit 1; }
     done

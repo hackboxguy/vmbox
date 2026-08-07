@@ -4,11 +4,12 @@ set -eu
 
 SOURCE_DIR=${HOOK_LOCAL_SOURCE:?HOOK_LOCAL_SOURCE is required}
 BACKEND_SOURCE=/tmp/build-sources/sp6bins/src/scripts/fpga-openfpgaloader-artyz7-backend.sh
+LATTICE_BACKEND_SOURCE=/tmp/build-sources/sp6bins/src/scripts/fpga-openfpgaloader-lattice45-usb-blaster-backend.sh
 BUILD_DIR=/tmp/fpga-openfpgaloader-build
 
 [ -f "$SOURCE_DIR/CMakeLists.txt" ] && [ -f "$SOURCE_DIR/src/board.hpp" ] && \
-    [ -f "$BACKEND_SOURCE" ] || {
-    echo "ERROR: OpenFPGALoader or Arty-Z7 backend source is incomplete" >&2
+    [ -f "$BACKEND_SOURCE" ] && [ -f "$LATTICE_BACKEND_SOURCE" ] || {
+	echo "ERROR: OpenFPGALoader or FPGA backend source is incomplete" >&2
     exit 1
 }
 
@@ -23,8 +24,14 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" \
 cmake --build "$BUILD_DIR" -j"$(nproc)"
 cmake --install "$BUILD_DIR"
 install -D -m 0755 "$BACKEND_SOURCE" /usr/libexec/fpga-flasher/openfpgaloader-artyz7
+install -D -m 0755 "$LATTICE_BACKEND_SOURCE" /usr/libexec/fpga-flasher/openfpgaloader-lattice45-usb-blaster
 
 /usr/bin/openFPGALoader --list-boards | grep -Eq '^[[:space:]]*arty_z7_20[[:space:]]' || {
     echo "ERROR: pinned OpenFPGALoader lacks Arty-Z7-20 support" >&2
     exit 1
+}
+
+/usr/bin/openFPGALoader --list-cables | grep -Eq '^usb-blaster[[:space:]]' || {
+	echo "ERROR: pinned OpenFPGALoader lacks USB-Blaster I support" >&2
+	exit 1
 }

@@ -97,10 +97,23 @@ APP_TAG="$(echo "$app_line" | cut -d'|' -f3)"
 
 check_tag() {
     # The pinned tag must exist on the remote: vmbox clones it inside the chroot.
-    if git ls-remote --exit-code --tags "$APP_REPO" "refs/tags/${APP_TAG}" >/dev/null 2>&1; then
-        echo "  tag ${APP_TAG} found on ${APP_REPO}"
-    else
+    if ! git ls-remote --exit-code --tags "$APP_REPO" "refs/tags/${APP_TAG}" >/dev/null 2>&1; then
         echo "  WARNING: tag ${APP_TAG} not found on ${APP_REPO} (push it first: git push origin ${APP_TAG})"
+        return 1
+    fi
+    echo "  tag ${APP_TAG} found on ${APP_REPO}"
+    # scripts/build-app-partition.sh clones with --depth 1 and ignores a failed checkout, so a tag that is not the
+    # tip of the default branch would silently build main HEAD. Refuse until that script clones the tag itself.
+    local head tag
+    head="$(git ls-remote "$APP_REPO" HEAD | cut -f1)"
+    tag="$(git ls-remote --tags "$APP_REPO" "refs/tags/${APP_TAG}^{}" | cut -f1)"
+    [ -n "$tag" ] || tag="$(git ls-remote --tags "$APP_REPO" "refs/tags/${APP_TAG}" | cut -f1)"   # lightweight tag
+    if [ "$head" = "$tag" ]; then
+        echo "  tag ${APP_TAG} is the tip of the default branch (${head:0:7})"
+    else
+        echo "  WARNING: tag ${APP_TAG} (${tag:0:7}) is not the tip of the default branch (${head:0:7}): the shallow"
+        echo "           clone in scripts/build-app-partition.sh would build HEAD instead. Pin the tip's tag, or"
+        echo "           make that script clone with --branch <tag> and fail on a checkout error."
         return 1
     fi
 }

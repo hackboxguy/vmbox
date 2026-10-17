@@ -2,4 +2,4 @@
 # Format: NAME|GIT_REPO|VERSION|CMAKE_OPTIONS|BUILD_DEPS|PORT|PRIORITY|TYPE|DESCRIPTION
 # text-to-block installs only its web configurator tree with -DVMBOX_BUILD=ON (no compilation). VERSION pins the
 # tag the build checks out; the tag must be pushed before the build.
-sbd-configurator|https://github.com/hackboxguy/text-to-block.git|configurator-0.8|-DVMBOX_BUILD=ON|cmake,git|8008|30|webapp|SBD configurator (text-to-block)
+sbd-configurator|https://github.com/hackboxguy/text-to-block.git|configurator-0.8.1|-DVMBOX_BUILD=ON|cmake,git|8008|30|webapp|SBD configurator (text-to-block)

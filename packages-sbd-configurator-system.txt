@@ -1,0 +1,3 @@
+# Packages installed into the immutable rootfs before application packaging (scripts/02-build-packages.sh).
+# The SBD configurator needs Python + Pillow, the Liberation fonts and resvg at runtime.
+packages/sbd-runtime-dependencies-hook.sh

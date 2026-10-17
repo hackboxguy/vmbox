@@ -1,0 +1,3 @@
+# The SBD configurator image has no additional APP build-time system packages (it compiles nothing).
+# Its runtime (python3, py3-pillow, font-liberation, resvg) is installed by packages-sbd-configurator-system.txt.
+# This file exists so build-app-partition.sh does not fall back to the default system-packages.txt.

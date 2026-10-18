@@ -6,6 +6,10 @@
 # (text-to-block at the tag pinned in packages-sbd-configurator.txt) -> disk image -> VirtualBox VM (+ OVA).
 # Modelled on build-generic-flasher-tool.sh (runtime step) and build-dngtoolkit-ova.sh.
 #
+# The app comes from the git submodule apps/text-to-block (private repo: clone vmbox with --recursive, or run
+# git submodule update --init apps/text-to-block); the build takes the tag pinned in packages-sbd-configurator.txt
+# out of the submodule, so no GitHub login is needed inside the build chroot.
+#
 # Usage (run as a NORMAL user; it calls sudo internally where needed):
 #   ./build-sbd-configurator-ova.sh --version=0.1.0 --clean
 #   ./build-sbd-configurator-ova.sh --version=0.1.0 --dry-run
@@ -94,6 +98,11 @@ app_line="$(grep -v '^[[:space:]]*#' "$PACKAGES_FILE" | grep -m1 '^sbd-configura
 [ -n "$app_line" ] || fail "no sbd-configurator line in $PACKAGES_FILE"
 APP_REPO="$(echo "$app_line" | cut -d'|' -f2)"
 APP_TAG="$(echo "$app_line" | cut -d'|' -f3)"
+PROJECT_ROOT="$SCRIPT_DIR"
+APP_REPO="$(eval echo "$APP_REPO")"   # file://${PROJECT_ROOT}/apps/text-to-block (git submodule)
+if [[ "$APP_REPO" == file://* ]] && [ ! -e "${APP_REPO#file://}/.git" ]; then
+    fail "${APP_REPO#file://} is empty: clone vmbox with --recursive, or run: git submodule update --init apps/text-to-block"
+fi
 
 check_tag() {
     # The pinned tag must exist on the remote: vmbox clones it inside the chroot.
@@ -203,4 +212,6 @@ fi
 echo ""
 echo "Done. VM '${VM_NAME}' registered."
 echo "Open http://localhost:8000 -> Applications -> SBD configurator (direct: http://localhost:8008)."
-[ "$EXPORT_OVA" = true ] && echo "OVA exported under ${OUTPUT_DIR} (see 04-convert-to-vbox.sh output above)."
+if [ "$EXPORT_OVA" = true ]; then
+    echo "OVA exported under ${OUTPUT_DIR} (see 04-convert-to-vbox.sh output above)."
+fi

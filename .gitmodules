@@ -14,3 +14,6 @@
 	path = apps/rh850-flasher-webapp
 	url = https://github.com/hackboxguy/rh850-flasher-webapp.git
 	branch = main
+[submodule "apps/text-to-block"]
+	path = apps/text-to-block
+	url = https://github.com/hackboxguy/text-to-block.git

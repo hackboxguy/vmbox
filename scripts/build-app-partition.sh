@@ -190,8 +190,20 @@ fetch_source() {
         if [ ! -d "$src_path" ]; then
             error "Local source not found: $src_path"
         fi
-        cp -a "$src_path"/* "$dest/"
-        info "Copied local source from: $src_path"
+        if [ -e "$src_path/.git" ] && [ ! -d "$src_path/.git" ] && [ "$version" != "HEAD" ] && [ "$version" != "local" ]; then
+            # A git submodule pinned to a tag / commit (e.g. apps/text-to-block): clone that ref out of the submodule
+            # into a standalone repo, so the image carries exactly the pin (not whatever the submodule has checked
+            # out) and git describe works inside the chroot (a submodule's .git file points outside the copy).
+            rm -rf "$dest"
+            git -c safe.directory='*' clone -q --no-checkout "$src_path" "$dest" ||
+                error "cannot clone submodule $src_path (run: git submodule update --init)"
+            git -c safe.directory='*' -C "$dest" checkout -q "$version" ||
+                error "cannot check out $version from $src_path (fetch the tag in the submodule)"
+            info "Cloned $version from submodule: $src_path"
+        else
+            cp -a "$src_path"/. "$dest/"   # dotfiles too: .git gives the app its version (git describe)
+            info "Copied local source from: $src_path"
+        fi
     else
         # Git repository - clone in chroot
         run_in_chroot "$ROOTFS_DIR" "

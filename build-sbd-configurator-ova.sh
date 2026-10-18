@@ -102,19 +102,17 @@ check_tag() {
         return 1
     fi
     echo "  tag ${APP_TAG} found on ${APP_REPO}"
-    # scripts/build-app-partition.sh clones with --depth 1 and ignores a failed checkout, so a tag that is not the
-    # tip of the default branch would silently build main HEAD. Refuse until that script clones the tag itself.
+    # scripts/build-app-partition.sh clones the pinned tag itself (--branch <tag>) and fails on a missing tag, so the
+    # tag need not be the tip of the default branch; report which commit the image will carry.
     local head tag
     head="$(git ls-remote "$APP_REPO" HEAD | cut -f1)"
     tag="$(git ls-remote --tags "$APP_REPO" "refs/tags/${APP_TAG}^{}" | cut -f1)"
     [ -n "$tag" ] || tag="$(git ls-remote --tags "$APP_REPO" "refs/tags/${APP_TAG}" | cut -f1)"   # lightweight tag
+    [ -n "$tag" ] || { echo "  ERROR: tag ${APP_TAG} not found"; return 1; }
     if [ "$head" = "$tag" ]; then
         echo "  tag ${APP_TAG} is the tip of the default branch (${head:0:7})"
     else
-        echo "  WARNING: tag ${APP_TAG} (${tag:0:7}) is not the tip of the default branch (${head:0:7}): the shallow"
-        echo "           clone in scripts/build-app-partition.sh would build HEAD instead. Pin the tip's tag, or"
-        echo "           make that script clone with --branch <tag> and fail on a checkout error."
-        return 1
+        echo "  tag ${APP_TAG} is ${tag:0:7} (default branch tip ${head:0:7}); the image carries the tag"
     fi
 }
 

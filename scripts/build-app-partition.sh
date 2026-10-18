@@ -196,11 +196,17 @@ fetch_source() {
         # Git repository - clone in chroot
         run_in_chroot "$ROOTFS_DIR" "
             apk add --quiet git 2>/dev/null || true
-            git clone --depth 1 '$repo' '${BUILD_DIR}/src-${name}' 2>/dev/null || \
-            git clone '$repo' '${BUILD_DIR}/src-${name}'
+            set -e
             if [ '$version' != 'HEAD' ]; then
-                cd '${BUILD_DIR}/src-${name}'
-                git checkout '$version' 2>/dev/null || true
+                # clone the pinned tag / branch itself: a shallow clone of the tip cannot check out an older tag
+                git clone --depth 1 --branch '$version' '$repo' '${BUILD_DIR}/src-${name}' 2>/dev/null || {
+                    git clone '$repo' '${BUILD_DIR}/src-${name}'
+                    cd '${BUILD_DIR}/src-${name}'
+                    git checkout '$version' || { echo 'ERROR: cannot check out $version'; exit 1; }
+                }
+            else
+                git clone --depth 1 '$repo' '${BUILD_DIR}/src-${name}' 2>/dev/null || \
+                git clone '$repo' '${BUILD_DIR}/src-${name}'
             fi
         "
         info "Cloned from: $repo ($version)"
@@ -486,9 +492,15 @@ build_system_package_cmake() {
 
         # Get source
         if echo '$source' | grep -qE '\\.git\$'; then
-            git clone --depth=1 '$source' '${name}-build'
+            if [ '$version' != 'HEAD' ]; then
+                git clone --depth=1 --branch '$version' '$source' '${name}-build' 2>/dev/null || {
+                    git clone '$source' '${name}-build' &&
+                    (cd '${name}-build' && git checkout '$version') || { echo 'ERROR: cannot check out $version'; exit 1; }
+                }
+            else
+                git clone --depth=1 '$source' '${name}-build'
+            fi
             cd '${name}-build'
-            [ '$version' != 'HEAD' ] && git checkout '$version' 2>/dev/null || true
         else
             wget -q '$source' -O source.tar
             mkdir -p '${name}-build'

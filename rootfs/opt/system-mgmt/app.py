@@ -117,6 +117,10 @@ APP_PROXY_DEFAULT_MAX_BODY_BYTES = 1024 * 1024
 APP_PROXY_FPGA_UPLOAD_MAX_BODY_BYTES = 32 * 1024 * 1024
 APP_PROXY_DEFAULT_TIMEOUT_SECONDS = 30
 APP_PROXY_FPGA_TRANSFER_TIMEOUT_SECONDS = 300
+# SBD configurator: product photos straight from a camera, and the user-data pack ("My data": profiles, parts,
+# price sets, pictures, photos) users carry from one appliance release to the next
+APP_PROXY_SBD_UPLOAD_MAX_BODY_BYTES = 512 * 1024 * 1024
+APP_PROXY_SBD_TRANSFER_TIMEOUT_SECONDS = 300
 APP_PROXY_STREAM_CHUNK_BYTES = 64 * 1024
 HOP_BY_HOP_HEADERS = {
     'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
@@ -224,6 +228,9 @@ def _proxy_limits(app_name, path):
     if app_name == 'fpga-flasher-webapp':
         if path.startswith('/api/v1/artifacts') or path.startswith('/api/v1/backups/'):
             return APP_PROXY_FPGA_UPLOAD_MAX_BODY_BYTES, APP_PROXY_FPGA_TRANSFER_TIMEOUT_SECONDS
+    if app_name == 'sbd-configurator':
+        if path.startswith('/api/photos/') or path == '/api/user-data' or path.startswith('/api/user-data?'):
+            return APP_PROXY_SBD_UPLOAD_MAX_BODY_BYTES, APP_PROXY_SBD_TRANSFER_TIMEOUT_SECONDS
     return APP_PROXY_DEFAULT_MAX_BODY_BYTES, APP_PROXY_DEFAULT_TIMEOUT_SECONDS
 
 

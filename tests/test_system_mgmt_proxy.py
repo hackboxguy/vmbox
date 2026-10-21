@@ -60,7 +60,8 @@ class SystemManagementProxyTests(TestCase):
             spec.loader.exec_module(cls.module)
         cls.module.app.config.update(TESTING=True, SECRET_KEY="test-secret")
         cls.backend = ThreadingHTTPServer(("127.0.0.1", 0), _Backend)
-        cls.module.get_app_ports = lambda: {"fpga-flasher-webapp": cls.backend.server_port}
+        cls.module.get_app_ports = lambda: {"fpga-flasher-webapp": cls.backend.server_port,
+                                            "sbd-configurator": cls.backend.server_port}
         cls.thread = Thread(target=cls.backend.serve_forever, daemon=True)
         cls.thread.start()
 
@@ -93,6 +94,23 @@ class SystemManagementProxyTests(TestCase):
         self.assertEqual(_Backend.received["body"], b"x" * 8192)
         self.assertEqual(_Backend.received["actor"], "operator@example.invalid")
         self.assertEqual(_Backend.received["proxy"], "1")
+
+    def test_sbd_photo_and_user_data_uploads_pass_above_the_default_limit(self):
+        big = b"y" * (self.module.APP_PROXY_DEFAULT_MAX_BODY_BYTES + 4096)
+        for path in ("/app/sbd-configurator/api/photos/board-x?subject=board&side=front",
+                     "/app/sbd-configurator/api/user-data", "/app/sbd-configurator/api/user-data?overwrite=1"):
+            response = self.authenticated_client().post(path, data=big, headers={"Content-Type": "application/zip"})
+            self.assertEqual(response.status_code, 201, path)
+            self.assertEqual(response.data, b'{"streamed":true}')
+            self.assertEqual(_Backend.received["body"], big)
+
+    def test_sbd_other_writes_keep_the_default_limit(self):
+        big = b"y" * (self.module.APP_PROXY_DEFAULT_MAX_BODY_BYTES + 1)
+        for path in ("/app/sbd-configurator/api/compose", "/app/sbd-configurator/api/user-data-x",
+                     "/app/sbd-configurator/api/photos"):
+            response = self.authenticated_client().post(path, data=big, headers={"Content-Type": "application/json"})
+            self.assertEqual(response.status_code, 413, path)
+            response.close()
 
     def test_fpga_write_rejects_missing_browser_contract_headers(self):
         response = self.authenticated_client().post(

@@ -281,9 +281,11 @@ def proxy_request_to_app(app_name, path):
 
     max_body_bytes, timeout_seconds = _proxy_limits(app_name, path)
     if request.method in ['POST', 'PUT', 'PATCH', 'DELETE']:
-        if request.content_length is None:
+        # No Content-Length and no Transfer-Encoding is an empty body (HTTP/1.1): browsers send a bodyless
+        # DELETE (or POST) that way. A chunked body of unknown size stays refused.
+        if request.content_length is None and request.headers.get('Transfer-Encoding'):
             return _proxy_error(411, 'A bounded Content-Length is required for proxied writes.')
-        if request.content_length > max_body_bytes:
+        if (request.content_length or 0) > max_body_bytes:
             return _proxy_error(413, 'Request body exceeds this application proxy limit.')
 
     connection = http.client.HTTPConnection('127.0.0.1', port, timeout=timeout_seconds)

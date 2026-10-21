@@ -42,6 +42,10 @@ class _Backend(BaseHTTPRequestHandler):
         self.wfile.write(b'{"streamed":')
         self.wfile.write(b"true}")
 
+    def do_DELETE(self):
+        self.send_response(204)
+        self.end_headers()
+
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-Type", "text/css; charset=utf-8")
@@ -103,6 +107,20 @@ class SystemManagementProxyTests(TestCase):
             self.assertEqual(response.status_code, 201, path)
             self.assertEqual(response.data, b'{"streamed":true}')
             self.assertEqual(_Backend.received["body"], big)
+
+    def test_bodyless_delete_without_content_length_is_forwarded(self):
+        client = self.authenticated_client()
+        response = client.open("/app/sbd-configurator/api/profiles/x", method="DELETE",
+                               environ_overrides={"CONTENT_LENGTH": ""})
+        self.assertEqual(response.status_code, 204)
+        response.close()
+
+    def test_chunked_write_without_length_is_refused(self):
+        response = self.authenticated_client().post(
+            "/app/sbd-configurator/api/compose", data=b"x",
+            headers={"Transfer-Encoding": "chunked"}, environ_overrides={"CONTENT_LENGTH": ""})
+        self.assertEqual(response.status_code, 411)
+        response.close()
 
     def test_sbd_other_writes_keep_the_default_limit(self):
         big = b"y" * (self.module.APP_PROXY_DEFAULT_MAX_BODY_BYTES + 1)

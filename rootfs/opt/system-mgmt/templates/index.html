@@ -1051,15 +1051,24 @@
     <script>
         let eventSource = null;
         let reconnectTimeout = null;
+        let lastStreamMessage = 0;
         let versionLoaded = false;
 
-        // Initialize SSE connection
+        // Initialize SSE connection. A browser allows only 6 connections per host:port and every open
+        // stream holds one, so hidden tabs close theirs (visibilitychange below): with 6 dashboard tabs
+        // open, the next page on this host would otherwise never load.
         function connectSSE() {
+            clearTimeout(reconnectTimeout);
             if (eventSource) {
                 eventSource.close();
             }
+            if (document.hidden) {
+                eventSource = null;
+                return;
+            }
 
             eventSource = new EventSource('/api/stream');
+            lastStreamMessage = Date.now();
 
             eventSource.onopen = function() {
                 setConnectionStatus(true);
@@ -1067,6 +1076,7 @@
             };
 
             eventSource.onmessage = function(event) {
+                lastStreamMessage = Date.now();
                 try {
                     const data = JSON.parse(event.data);
                     if (!data.error) {
@@ -1077,15 +1087,54 @@
                 }
             };
 
-            eventSource.onerror = function() {
-                setConnectionStatus(false);
-                eventSource.close();
-
-                // Reconnect after 3 seconds
-                clearTimeout(reconnectTimeout);
-                reconnectTimeout = setTimeout(connectSSE, 3000);
-            };
+            eventSource.onerror = streamFailed;
         }
+
+        function streamFailed() {
+            setConnectionStatus(false);
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+
+            // Logged out (expired session, or a cookie from an earlier boot or another VM): go to the
+            // login page instead of retrying forever; otherwise reconnect after 3 seconds
+            fetch('/api/session/check', { cache: 'no-store' })
+                .then(r => r.ok ? r.json() : { valid: false })
+                .then(d => {
+                    if (d && d.valid === false) {
+                        window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
+                        return;
+                    }
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = setTimeout(connectSSE, 3000);
+                })
+                .catch(() => {
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = setTimeout(connectSSE, 3000);
+                });
+        }
+
+        // Watchdog: the server sends every second; a stream silent for 10 s is dead (e.g. the VM restarted
+        // behind VirtualBox's port forward, which keeps the browser's connection open without data)
+        setInterval(function() {
+            if (eventSource && Date.now() - lastStreamMessage > 10000) {
+                streamFailed();
+            }
+        }, 5000);
+
+        // Hidden tab: release the stream's connection; visible again: reconnect at once
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                clearTimeout(reconnectTimeout);
+                if (eventSource) {
+                    eventSource.close();
+                    eventSource = null;
+                }
+            } else if (!eventSource) {
+                connectSSE();
+            }
+        });
 
         function setConnectionStatus(connected) {
             const dot = document.getElementById('connection-dot');
@@ -1688,7 +1737,13 @@
         // Refresh apps every 10 seconds
         appsRefreshInterval = setInterval(loadApps, 10000);
 
-        // Cleanup on page unload
+        // Cleanup on page unload (pagehide also covers the back/forward cache, where beforeunload may not fire)
+        window.addEventListener('pagehide', function() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        });
         window.addEventListener('beforeunload', function() {
             if (eventSource) {
                 eventSource.close();

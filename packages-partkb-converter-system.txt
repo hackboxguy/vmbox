@@ -1,3 +1,3 @@
 # Packages installed into the immutable rootfs before application packaging (scripts/02-build-packages.sh).
-# The partkb converter needs Python with PyMuPDF, httpx, PyYAML, jsonschema, plus git and sqlite (VM plan §7.1).
+# The partkb converter needs Python with PyMuPDF, httpx, PyYAML, jsonschema, Pillow, plus git and sqlite (VM plan §7.1).
 packages/partkb-runtime-dependencies-hook.sh

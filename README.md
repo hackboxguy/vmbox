@@ -246,6 +246,14 @@ Run it as a normal user:
 It adds an exact `0403:a9a0` USB filter for the EEHB Bluebox. Use `--usb=2` or
 `--usb=3` only when the host has the matching VirtualBox Extension Pack.
 
+## Appliance build output (configurator, converter)
+
+`build-sbd-configurator-ova.sh` and `build-partkb-converter-ova.sh` write the raw image, the OVA **and the registered
+VM's disk** to `--output`. The default is `${VMBOX_BUILD_ROOT:-/home/adav/extended-disk/vmbox-build}/<name>-<version>`.
+They refuse an output on tmpfs (`/tmp`): a host reboot would delete the disk of a registered VM, as happened on
+2026-10-25. `--allow-tmpfs` permits it for a throw-away test build. Keep released OVAs, and VMs meant to keep running,
+on a persistent disk (VMs: `VBoxManage import <ova> --vsys 0 --basefolder <persistent dir>`).
+
 ## partkb Converter Appliance (in preparation)
 
 `build-partkb-converter-ova.sh` builds the second appliance of the display system-design toolchain next to the SBD
@@ -258,8 +266,9 @@ its upload limits come from the app's manifest (`proxy.limits`). The data partit
 allocated VDI, holding `/data/app-data/partkb-converter/` (PDF store, data, working library, packages, jobs) and
 `/data/app-config/partkb-converter/` (Azure key, settings), both cleared by a factory reset. The hostname is
 `partkb-converter`, so the dashboard login cookie is `session-partkb-converter` and does not collide with a
-configurator VM (`session-sbd-configurator`) reached on the same host. As of 2026-10-25 the build runs up to the app
-step: partkb has no CMake install and no `partkb-0.3.0` tag yet (`--skip-tag-check` to try steps 1-2).
+configurator VM (`session-sbd-configurator`) reached on the same host. partkb's CMake install takes the text-to-block
+schema / tools / library from the configurator submodule (`-DTEXT_TO_BLOCK_DIR`, staged into the build chroot);
+the first image, `vmbox-partkb-converter-v0.1.0` (partkb-0.5.0), built and booted on 2026-10-25.
 
 ### Appliance acceptance tests
 

@@ -691,6 +691,8 @@ if command -v jq >/dev/null && [ -f "$MANIFEST" ]; then
     fi
 fi
 
+# @APP_ENV_FILE@
+
 # Create directories
 mkdir -p "$APP_DATA_DIR" "$APP_CONFIG_DIR" /run/app /var/log/app
 
@@ -710,6 +712,9 @@ PID=$!
 echo $PID > "$PIDFILE"
 echo "${APP_NAME} started (PID: $PID)"
 STARTUP_EOF
+
+    # The optional data-partition env file (scripts/app-env-file.sh) goes after the manifest env
+    sed -i -e "/^# @APP_ENV_FILE@\$/{r ${SCRIPT_DIR}/app-env-file.sh" -e "d}" "$script_path"
 
     # Replace placeholders (only replace specific placeholder, not variable names)
     sed -i "s/APP_NAME_PLACEHOLDER/${name}/g" "$script_path"

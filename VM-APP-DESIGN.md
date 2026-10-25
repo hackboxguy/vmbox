@@ -246,7 +246,33 @@ Each application must include a manifest describing its requirements:
 | `data_dirs` | No | Directories to create in app-data |
 | `config_files` | No | Config files to copy on first run |
 | `env` | No | Environment variables for the process |
+| `proxy` | No | `{"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`: per-path body / timeout limits of the dashboard proxy (default 1 MB / 30 s; ceiling 4 GB / 600 s; first matching prefix wins) |
 | `logging` | No | Logging configuration |
+
+### Per-app environment on the data partition (`/data/app-config/<name>/env`)
+
+The manifest is on the read-only APP partition. To change an app's environment on one appliance without a rebuild,
+put an `env` file in its config directory, `/data/app-config/<name>/env`. The generated startup script applies it
+**after** the manifest `env`, so it can override a manifest value. It survives APP-partition updates and is removed
+by a factory reset.
+
+Format: `KEY=value` lines; blank lines and lines starting with `#` are ignored. The value is taken literally, to the
+end of the line: no quotes, no `$` expansion, no command substitution. The file is never run as shell. A key must be
+a shell variable name; any other line is skipped with a message in the app log. Example:
+
+```
+# turn the configurator's library overlay off on this VM
+SBD_LIBRARY_OVERLAY_DIR=
+```
+
+Restart the app from the dashboard (Applications) to apply it. The loader is `scripts/app-env-file.sh`; its test is
+`tests/test_app_env_file.py`.
+
+### Sessions behind the proxy
+
+`/app/<name>/...` requires the dashboard login. With a missing or expired session, a page request is redirected to
+`/login`, and an app API request (`/app/<name>/api/...`) gets `401 {"error": ...}` (JSON, not the login page). On a
+401 the app's page should reload, which leads to the login page.
 
 ### Health Check Types
 

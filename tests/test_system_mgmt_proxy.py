@@ -8,7 +8,7 @@ import logging
 import sys
 import tempfile
 import types
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -202,6 +202,23 @@ class SystemManagementProxyTests(TestCase):
             self.assertEqual(response.status_code, 302)
             cookies = response.headers.getlist("Set-Cookie")
             self.assertTrue(any(c.startswith("session-sbd-configurator=") for c in cookies), cookies)
+
+    def test_dead_session_on_an_app_api_path_is_401_json_the_page_is_a_login_redirect(self):
+        client = self.module.app.test_client()
+        for method in ("get", "post"):
+            response = getattr(client, method)("/app/sbd-configurator/api/profiles")
+            self.assertEqual(response.status_code, 401, method)
+            self.assertEqual(response.get_json(), {"error": "Authentication required"})
+        response = client.get("/app/sbd-configurator/")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login", response.headers["Location"])
+        stale = self.module.app.test_client()
+        with stale.session_transaction() as session:
+            session["username"] = "operator@example.invalid"
+            session["login_time"] = (datetime.now() - self.module.SESSION_TIMEOUT - timedelta(minutes=1)).isoformat()
+        response = stale.get("/app/partkb-converter/api/status")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json(), {"error": "Session expired"})
 
     def test_fpga_write_rejects_missing_browser_contract_headers(self):
         response = self.authenticated_client().post(

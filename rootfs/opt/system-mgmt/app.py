@@ -431,12 +431,22 @@ def verify_shadow_password(username, password):
     return False
 
 
+APP_API_PATH = re.compile(r'^/app/[^/]+/api/')
+
+
+def _wants_json():
+    """API callers get 401 + JSON instead of the login redirect: the dashboard's own /api/ and an app's API behind
+    the proxy (/app/<name>/api/...), whose page reloads to the login on 401 (a redirect would hand its fetch the
+    HTML login page)."""
+    return request.is_json or request.path.startswith('/api/') or bool(APP_API_PATH.match(request.path))
+
+
 def login_required(f):
     """Decorator to require authentication for a route."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'username' not in session:
-            if request.is_json or request.path.startswith('/api/'):
+            if _wants_json():
                 return jsonify({'error': 'Authentication required'}), 401
             return redirect(url_for('login', next=_safe_next_path(request.full_path)))
         # Check session expiry
@@ -444,7 +454,7 @@ def login_required(f):
             login_time = datetime.fromisoformat(session['login_time'])
             if datetime.now() - login_time > SESSION_TIMEOUT:
                 session.clear()
-                if request.is_json or request.path.startswith('/api/'):
+                if _wants_json():
                     return jsonify({'error': 'Session expired'}), 401
                 return redirect(url_for('login', next=_safe_next_path(request.full_path)))
         return f(*args, **kwargs)

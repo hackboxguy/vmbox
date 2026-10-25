@@ -25,7 +25,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${SCRIPT_DIR}/config.sh"
 
 VERSION="0.1.0"
-OUTPUT_DIR="/tmp/sbd-configurator-vmbox-build"
+OUTPUT_DIR=""                 # default: ${VMBOX_BUILD_ROOT:-/home/adav/extended-disk/vmbox-build}/sbd-configurator-<version>
+ALLOW_TMPFS=false
 PACKAGES_FILE="${SCRIPT_DIR}/packages-sbd-configurator.txt"
 SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-sbd-configurator-system.txt"
 APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-sbd-configurator.txt"
@@ -45,7 +46,9 @@ SBD configurator VMBOX OVA builder
 Usage: $0 [OPTIONS]
 
   --version=VER     Image version (default: ${VERSION}); the app version is the pinned text-to-block tag
-  --output=DIR      Build artifact dir (default: ${OUTPUT_DIR})
+  --output=DIR      Build artifact dir (default: \${VMBOX_BUILD_ROOT:-/home/adav/extended-disk/vmbox-build}/sbd-configurator-<version>);
+                    it also holds the VM's disk, so it must not be on tmpfs (/tmp): a reboot would lose the VM
+  --allow-tmpfs     Allow an --output on tmpfs anyway (a throw-away test build)
   --packages=FILE   App package list (default: packages-sbd-configurator.txt)
   --ospart=SIZE     OS partition size (default: ${OS_PART_SIZE})
   --datapart=SIZE   Data partition size (default: ${DATA_PART_SIZE})
@@ -64,6 +67,7 @@ for arg in "$@"; do
     case "$arg" in
         --version=*)   VERSION="${arg#*=}" ;;
         --output=*)    OUTPUT_DIR="${arg#*=}" ;;
+        --allow-tmpfs) ALLOW_TMPFS=true ;;
         --packages=*)  PACKAGES_FILE="${arg#*=}" ;;
         --ospart=*)    OS_PART_SIZE="${arg#*=}" ;;
         --datapart=*)  DATA_PART_SIZE="${arg#*=}" ;;
@@ -79,6 +83,7 @@ for arg in "$@"; do
 done
 
 [ -n "$VM_NAME" ] || VM_NAME="vmbox-sbd-configurator-v${VERSION}"
+[ -n "$OUTPUT_DIR" ] || OUTPUT_DIR="${VMBOX_BUILD_ROOT:-/home/adav/extended-disk/vmbox-build}/sbd-configurator-${VERSION}"
 OUTPUT_DIR="$(realpath -m "$OUTPUT_DIR")"
 ROOTFS_DIR="${OUTPUT_DIR}/rootfs"
 APP_OUT_DIR="${OUTPUT_DIR}/app"
@@ -87,6 +92,15 @@ RAW_IMAGE="${OUTPUT_DIR}/${IMAGE_NAME_PREFIX}.raw"
 
 # ---- Pre-flight checks -------------------------------------------------------
 fail() { echo "ERROR: $*" >&2; exit 1; }
+
+# The output dir holds the VM's disk (VDI): on tmpfs a host reboot loses the registered VM (it did, 2026-10-25).
+out_probe="$OUTPUT_DIR"
+while [ ! -e "$out_probe" ] && [ "$out_probe" != "/" ]; do out_probe="$(dirname "$out_probe")"; done
+out_fs="$(findmnt -no FSTYPE --target "$out_probe" 2>/dev/null || stat -f -c %T "$out_probe")"
+if [ "$out_fs" = "tmpfs" ] || [[ "$OUTPUT_DIR" == /tmp/* ]]; then
+    [ "$ALLOW_TMPFS" = true ] || fail "--output ${OUTPUT_DIR} is on tmpfs (${out_fs}): the VM's disk would not survive a reboot. Use the default (\${VMBOX_BUILD_ROOT:-/home/adav/extended-disk/vmbox-build}) or pass --allow-tmpfs for a throw-away build."
+    echo "WARNING: --output on tmpfs (--allow-tmpfs): the VM is lost on reboot" >&2
+fi
 
 [ "$(id -u)" -ne 0 ] || fail "run this as a normal user, not root (it calls sudo; VirtualBox VMs are per-user)."
 for f in "$PACKAGES_FILE" "$SYSTEM_RUNTIME_PACKAGES_FILE" "$APP_SYSTEM_PACKAGES_FILE" \

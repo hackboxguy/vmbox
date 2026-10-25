@@ -182,8 +182,11 @@ Without `--appdir` no app port is forwarded. The partkb converter build (`build-
 that: its web UI binds to 127.0.0.1:8009 and is reachable only through the dashboard proxy, which requires a login
 and passes the user as `X-VMBOX-Actor`. The system-mgmt proxy takes each app's upload size and timeout from
 `/app/<name>/manifest.json` (`"proxy": {"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`, ceiling 4 GB /
-600 s) and names its session cookie after `/etc/hostname` (`session-partkb-converter`, `session-sbd-configurator`),
-so two appliances on one host keep separate logins.
+600 s) and names its session cookie after `/etc/hostname` and the image version (`session-partkb-converter-0.2.0`,
+`session-sbd-configurator-0.16.0`), so two appliances, or two releases of one appliance, on one host keep separate
+logins. An app API path (`/app/<name>/api/...`) with a missing or expired login answers 401 JSON instead of the login
+redirect. The README section "The two display appliances" has the whole picture (ports, data partitions, env file,
+proxy limits, acceptance tests, build output path).
 
 The base rootfs pip-installs `openai==1.35.13` and `httpx==0.27.2` for every image (`config.sh`). The partkb converter
 uses neither the base `openai` package (it calls Azure OpenAI with httpx directly) nor the base's pip copy of httpx:

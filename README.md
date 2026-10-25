@@ -246,56 +246,79 @@ Run it as a normal user:
 It adds an exact `0403:a9a0` USB filter for the EEHB Bluebox. Use `--usb=2` or
 `--usb=3` only when the host has the matching VirtualBox Extension Pack.
 
-## Appliance build output (configurator, converter)
+## The two display appliances
 
-`build-sbd-configurator-ova.sh` and `build-partkb-converter-ova.sh` write the raw image, the OVA **and the registered
-VM's disk** to `--output`. The default is `${VMBOX_BUILD_ROOT:-/home/adav/extended-disk/vmbox-build}/<name>-<version>`.
-They refuse an output on tmpfs (`/tmp`): a host reboot would delete the disk of a registered VM, as happened on
-2026-10-25. `--allow-tmpfs` permits it for a throw-away test build. Keep released OVAs, and VMs meant to keep running,
-on a persistent disk (VMs: `VBoxManage import <ova> --vsys 0 --basefolder <persistent dir>`).
+Two VirtualBox appliances of the display system-design toolchain are built from this repo. Each has its own OVA,
+image version and data partition, and both are reached through the vmbox dashboard.
 
-## partkb Converter Appliance (in preparation)
+| | SBD configurator | partkb converter |
+|---|---|---|
+| build | `build-sbd-configurator-ova.sh --version=<x.y.z>` | `build-partkb-converter-ova.sh --version=<x.y.z>` |
+| app | submodule `apps/text-to-block` at the tag in `packages-sbd-configurator.txt` | submodule `apps/partkb` at the tag in `packages-partkb-converter.txt`, with the text-to-block schema / tools / library of `apps/text-to-block` (`-DTEXT_TO_BLOCK_DIR`, staged into the build chroot) |
+| runtime packages | `packages-sbd-configurator-system.txt` (python3, Pillow, fonts, resvg) | `packages-partkb-converter-system.txt` (python3, PyMuPDF 1.28.2 wheel pinned by SHA-256, httpx, PyYAML, jsonschema, Pillow, git, sqlite) |
+| hostname / dashboard cookie | `sbd-configurator` / `session-sbd-configurator-<version>` | `partkb-converter` / `session-partkb-converter-<version>` |
+| app port | 8008 (forwarded directly too, for debugging) | 8009 on 127.0.0.1 only: through the dashboard proxy, never forwarded |
+| user path | `http://<host>:8000/app/sbd-configurator/` | `http://<host>:8000/app/partkb-converter/` |
+| data partition | 1 GB: `/data/app-data/sbd-configurator/` (profiles, parts, price sets, pictures, photos, `library-overlay/`) | 16 GB dynamically allocated VDI: `/data/app-data/partkb-converter/` (store, data repository, working library, packages, jobs) and `/data/app-config/partkb-converter/` (Azure key 0600, settings) |
+| moving to a new release | "My data" pack (download on the old VM, load on the new one) | data bundle on the Data tab (download, restore in 64 MB chunks) |
 
-`build-partkb-converter-ova.sh` builds the second appliance of the display system-design toolchain next to the SBD
-configurator (`build-sbd-configurator-ova.sh`). It holds the partkb datasheet converter (submodule `apps/partkb`,
-pinned in `packages-partkb-converter.txt`), whose runtime is installed by `packages-partkb-converter-system.txt`.
-That runtime is Python 3.12 with the PyMuPDF 1.28.2 musllinux wheel (Alpine 3.21 has no `py3-pymupdf`), httpx,
-PyYAML, jsonschema, git and sqlite. Ports: only the dashboard (8000, plus SSH and the web terminal) is forwarded.
-The web UI listens on 127.0.0.1:8009 and is reached through the authenticated proxy at `/app/partkb-converter/`;
-its upload limits come from the app's manifest (`proxy.limits`). The data partition is 16 GB in a dynamically
-allocated VDI, holding `/data/app-data/partkb-converter/` (PDF store, data, working library, packages, jobs) and
-`/data/app-config/partkb-converter/` (Azure key, settings), both cleared by a factory reset. The hostname is
-`partkb-converter`, so the dashboard login cookie is `session-partkb-converter` and does not collide with a
-configurator VM (`session-sbd-configurator`) reached on the same host. partkb's CMake install takes the text-to-block
-schema / tools / library from the configurator submodule (`-DTEXT_TO_BLOCK_DIR`, staged into the build chroot);
-the first image, `vmbox-partkb-converter-v0.1.0` (partkb-0.5.0), built and booted on 2026-10-25.
+- **Cookies:** the dashboard's session cookie is `session-<hostname>-<image version>`. Two appliances, or two
+  releases of one appliance (the old and the new VM during a move), reached on one host keep separate logins.
+- **Proxy limits** come from each app's manifest: `"proxy": {"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`;
+  the first matching prefix wins. The default is 1 MB / 30 s, the ceiling 4 GB / 600 s.
+  - Configurator: photos and user-data 512 MB / 300 s, library-package 50 MB / 120 s.
+  - Converter: documents 200 MB / 300 s, library-package 50 MB / 120 s, bundle chunks 128 MB / 600 s.
+
+  An app API path (`/app/<name>/api/...`) answers 401 JSON with a missing or expired login; pages redirect to
+  `/login`.
+- **Per-VM settings without a rebuild:** `/data/app-config/<app>/env`, `KEY=value` lines, applied after the manifest
+  env, never evaluated; see VM-APP-DESIGN.md. Restart the app from the dashboard afterwards. Example: the line
+  `SBD_LIBRARY_OVERLAY_DIR=` turns the configurator's "Library…" dialog off.
+- **Runtime packages a hook needs**, but which are also build tools (git), go into `/etc/vmbox/runtime-packages`; the
+  build-package purge keeps them.
+- **Build output:** `--output` defaults to `${VMBOX_BUILD_ROOT:-/home/adav/extended-disk/vmbox-build}/<name>-<version>`
+  and holds the raw image, the OVA **and the registered VM's disk**. tmpfs (`/tmp`) is refused unless
+  `--allow-tmpfs`, because a host reboot would delete the disk of a registered VM (as happened on 2026-10-25). Keep
+  released OVAs and running VMs on a persistent disk: `VBoxManage import <ova> --vsys 0 --basefolder <dir>`.
+- **Test boot next to a running VM:** move every NAT forward of the test VM first (configurator 8000 / 8008 / 8003 /
+  2222, converter 8000 / 8003 / 2222), and power it off afterwards (`VBoxManage controlvm <vm> poweroff`).
 
 ### Appliance acceptance tests
 
-`tests/appliance/` holds acceptance tests that run against a booted VM through its dashboard, as a user's browser
-would: HTTP with the dashboard login, plus headless chromium over CDP (Node >= 22, `chromium` on PATH). They are not
-part of `make check`. Pass the forwarded dashboard port and the dashboard password:
+`tests/appliance/` runs against a booted VM through its dashboard, as a user's browser would: HTTP with the
+dashboard login, plus headless chromium over CDP (Node >= 22, `chromium` on PATH). It is not part of `make check`.
+Pass the forwarded dashboard port and the dashboard password:
 
 ```bash
 APPLIANCE_PASSWORD=… make appliance-test APP=configurator HOST=127.0.0.1 PORT=8000 [ARGS="--package=<zip> --part=<id>"]
 APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8100 PDF=../data-sheets-collection/tps3704.pdf \
     ARGS="--package=<layout-2 package of the repo> [--factory-reset=1]"
+APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8100 ARGS="--bundle=<data bundle .tar>"
 APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 --converter-port=8100 [--second-app=sbd-configurator]"
 ```
 
-- `configurator`: login and cookie, photo upload over 1 MB and the 1 MB default (manifest `proxy.limits`), a profile
-  clone / PUT / render / export, "My data" download and load, the "Library…" dialog present (on by default since
-  configurator-0.16.0; `--overlay=0` for an older release), a dead session reloading the page to the login, and 7
-  tabs. `--package=<zip> --part=<id>` drives the dialog once: check, install, restart from the dashboard, the record
-  live, remove, restart.
-- `converter`: web plan §13 tests 1, 3, 8 (Data tab: bundle download of the VM, chunked upload, verify, restore),
-  9 (`--factory-reset=1`) and 10; the baseline upload as a job (`--package`: check job, install, header version);
-  the header; the PDF upload through the proxy; start without Azure settings (409 "Azure: not set"); the empty
-  Cost page. It sets a dummy Azure endpoint and key and removes them again; never pass a real
-  key. Run it against 127.0.0.1 or localhost: the page hashes a dropped PDF only in a secure context.
-- `coexist`: both dashboards logged in, in one browser profile. With `--second-app=sbd-configurator`, two
-  configurator releases on one host share the cookie name `session-sbd-configurator` and log each other out: use
-  `localhost` for one and `127.0.0.1` for the other, or a private window.
+- `configurator`:
+  - login and cookie;
+  - photo upload over 1 MB, and the 1 MB default elsewhere;
+  - profile clone / PUT / render / export;
+  - "My data" download and load;
+  - the "Library…" dialog present (configurator-0.16.0 and later; `--overlay=0` before);
+  - a dead session reloading the page to the login;
+  - 7 tabs.
+
+  `--package=<zip> --part=<id>` runs the dialog once: check, install, restart from the dashboard, the record live,
+  remove, restart.
+- `converter`:
+  - web plan §13 tests 1, 3, 8 (Data tab on the VM as it is), 9 (`--factory-reset=1`) and 10;
+  - the baseline upload as a job (`--package`);
+  - the PDF upload through the proxy;
+  - start without Azure settings (409);
+  - the empty Cost page.
+
+  It sets a dummy Azure endpoint / key and removes it again; never pass a real key. `--bundle=<tar>` runs only the
+  restore rehearsal: two restores of a data bundle in 64 MB chunks, timed, with the counts checked.
+- `coexist`: two dashboards logged in, in one browser profile (`--second-app=sbd-configurator` for two configurator
+  releases).
 
 ## Accessing the VM
 

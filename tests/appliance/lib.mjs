@@ -111,8 +111,9 @@ export class Browser {
     }
     async close() {
         try { await this.send("Browser.close"); } catch { /* gone */ }
-        this.proc.kill();
-        rmSync(this.dir, { recursive: true, force: true });
+        await new Promise(res => { if (this.proc.exitCode !== null) return res(); this.proc.once("exit", res); setTimeout(() => { this.proc.kill("SIGKILL"); res(); }, 5000); });
+        // chromium may still be flushing its profile: a failed clean-up of the temp dir must not fail the test run
+        try { rmSync(this.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* left in tmp */ }
     }
 }
 

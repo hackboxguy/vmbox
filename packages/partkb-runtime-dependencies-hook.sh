@@ -1,0 +1,29 @@
+#!/bin/sh
+# Runtime of the partkb converter (partkb VM plan §7.1): Python with PyMuPDF (PDF text, ds requirement >= 1.24),
+# httpx (Azure OpenAI client), PyYAML, jsonschema, git (data/ is a local git repository, D7) and sqlite (index).
+#
+# PyMuPDF: Alpine 3.21 has no py3-pymupdf (only edge/testing, masked here, and it needs edge's libmupdf), so the
+# pinned PyMuPDF musllinux wheel is installed with pip, binary only. PyMuPDF 2.0 ships no musllinux wheel (sdist
+# only, and the source build fails in this chroot); 1.28.2 is the newest with one (abi3, ~26 MB download).
+# Verified 2026-10-25 in the converter build chroot (Python 3.12.15).
+set -eu
+
+apk add --no-cache \
+    python3 \
+    py3-pip \
+    py3-yaml \
+    py3-httpx \
+    py3-jsonschema \
+    git \
+    sqlite
+
+PYMUPDF_VERSION="1.28.2"
+pip3 install --no-cache-dir --break-system-packages --only-binary=:all: "pymupdf==${PYMUPDF_VERSION}"
+
+python3 - <<'PY'
+import httpx, jsonschema, pymupdf, sqlite3, yaml
+print("partkb runtime imports ok: pymupdf", pymupdf.VersionBind, "httpx", httpx.__version__, "jsonschema",
+      jsonschema.__version__ if hasattr(jsonschema, "__version__") else "?", "yaml", yaml.__version__,
+      "sqlite", sqlite3.sqlite_version)
+assert tuple(int(x) for x in pymupdf.VersionBind.split(".")[:2]) >= (1, 24), "PyMuPDF < 1.24"
+PY

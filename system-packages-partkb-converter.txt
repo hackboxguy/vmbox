@@ -1,0 +1,3 @@
+# The partkb converter image has no additional APP build-time system packages (it compiles nothing).
+# Its runtime is installed by packages-partkb-converter-system.txt.
+# This file exists so build-app-partition.sh does not fall back to the default system-packages.txt.

@@ -246,6 +246,21 @@ Run it as a normal user:
 It adds an exact `0403:a9a0` USB filter for the EEHB Bluebox. Use `--usb=2` or
 `--usb=3` only when the host has the matching VirtualBox Extension Pack.
 
+## partkb Converter Appliance (in preparation)
+
+`build-partkb-converter-ova.sh` builds the second appliance of the display system-design toolchain next to the SBD
+configurator (`build-sbd-configurator-ova.sh`). It holds the partkb datasheet converter (submodule `apps/partkb`,
+pinned in `packages-partkb-converter.txt`), whose runtime is installed by `packages-partkb-converter-system.txt`.
+That runtime is Python 3.12 with the PyMuPDF 1.28.2 musllinux wheel (Alpine 3.21 has no `py3-pymupdf`), httpx,
+PyYAML, jsonschema, git and sqlite. Ports: only the dashboard (8000, plus SSH and the web terminal) is forwarded.
+The web UI listens on 127.0.0.1:8009 and is reached through the authenticated proxy at `/app/partkb-converter/`;
+its upload limits come from the app's manifest (`proxy.limits`). The data partition is 16 GB in a dynamically
+allocated VDI, holding `/data/app-data/partkb-converter/` (PDF store, data, working library, packages, jobs) and
+`/data/app-config/partkb-converter/` (Azure key, settings), both cleared by a factory reset. The hostname is
+`partkb-converter`, so the dashboard login cookie is `session-partkb-converter` and does not collide with a
+configurator VM (`session-sbd-configurator`) reached on the same host. As of 2026-10-25 the build runs up to the app
+step: partkb has no CMake install and no `partkb-0.3.0` tag yet (`--skip-tag-check` to try steps 1-2).
+
 ## Accessing the VM
 
 | Service | URL/Command |

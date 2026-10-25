@@ -1,0 +1,10 @@
+# partkb converter appliance (partkb VM plan §7, §8): the partkb web app from the submodule apps/partkb at the pinned
+# tag. Port 8009 is reached only through the dashboard proxy (/app/partkb-converter/): the build forwards no app port.
+#
+# NOTE (2026-10-25): partkb has no CMake install (-DVMBOX_BUILD=ON) yet, and no partkb-0.3.0 tag; both come with the
+# partkb session's web-app step 5. Until then build-app-partition.sh fails at this line (see
+# build-partkb-converter-ova.sh). The text-to-block schema / tools at the pinned configurator tag are installed by
+# partkb's CMake from apps/text-to-block.
+#
+# Format: name|repo|tag|cmake args|build deps|port|priority|type|description
+partkb-converter|file://${PROJECT_ROOT}/apps/partkb|partkb-0.3.0|-DVMBOX_BUILD=ON|cmake,git|8009|30|webapp|partkb converter

@@ -178,6 +178,13 @@ VBoxManage modifyvm "$VM_NAME" \
     --natpf1 "app-${app_name},tcp,,${app_port},,${app_port}"
 ```
 
+Without `--appdir` no app port is forwarded. The partkb converter build (`build-partkb-converter-ova.sh`) relies on
+that: its web UI binds to 127.0.0.1:8009 and is reachable only through the dashboard proxy, which requires a login
+and passes the user as `X-VMBOX-Actor`. The system-mgmt proxy takes each app's upload size and timeout from
+`/app/<name>/manifest.json` (`"proxy": {"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`, ceiling 4 GB /
+600 s) and names its session cookie after `/etc/hostname` (`session-partkb-converter`, `session-sbd-configurator`),
+so two appliances on one host keep separate logins.
+
 ---
 
 ## WebUI Considerations

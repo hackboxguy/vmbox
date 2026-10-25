@@ -17,3 +17,6 @@
 [submodule "apps/text-to-block"]
 	path = apps/text-to-block
 	url = https://github.com/hackboxguy/text-to-block.git
+[submodule "apps/partkb"]
+	path = apps/partkb
+	url = https://github.com/hackboxguy/partkb.git

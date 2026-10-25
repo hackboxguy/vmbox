@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
+import sys
+import tempfile
+import types
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,6 +22,8 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = ROOT / "rootfs/opt/system-mgmt/app.py"
+# the configurator's own manifest (submodule at the pinned tag) carries its proxy limits
+SBD_MANIFEST = ROOT / "apps/text-to-block/manifest.template.json"
 
 
 class _Backend(BaseHTTPRequestHandler):
@@ -60,20 +66,40 @@ class SystemManagementProxyTests(TestCase):
     def setUpClass(cls):
         spec = importlib.util.spec_from_file_location("system_mgmt_test_app", APP_PATH)
         cls.module = importlib.util.module_from_spec(spec)
-        with mock.patch("logging.handlers.RotatingFileHandler", lambda *_args, **_kwargs: logging.NullHandler()):
+        # crypt left the standard library in Python 3.13; the VM's Python still has it
+        stub = {} if importlib.util.find_spec("crypt") else {"crypt": types.ModuleType("crypt")}
+        with mock.patch("logging.handlers.RotatingFileHandler", lambda *_args, **_kwargs: logging.NullHandler()), \
+                mock.patch.dict(sys.modules, stub):
             spec.loader.exec_module(cls.module)
         cls.module.app.config.update(TESTING=True, SECRET_KEY="test-secret")
         cls.backend = ThreadingHTTPServer(("127.0.0.1", 0), _Backend)
         cls.module.get_app_ports = lambda: {"fpga-flasher-webapp": cls.backend.server_port,
-                                            "sbd-configurator": cls.backend.server_port}
+                                            "sbd-configurator": cls.backend.server_port,
+                                            "zz-no-manifest": cls.backend.server_port}
+        # /app/<name>/manifest.json as the image installs them
+        cls.app_root = tempfile.TemporaryDirectory()
+        cls.module.APP_DIR_ROOT = cls.app_root.name
+        manifest = json.loads(SBD_MANIFEST.read_text().replace("@PROJECT_NAME@", "sbd-configurator")
+                              .replace("@SBD_VERSION@", "test"))
+        cls.write_manifest("sbd-configurator", manifest)
+        cls.write_manifest("zz-huge", {"name": "zz-huge", "proxy": {"limits": [
+            {"prefix": "/api/huge", "max_body_mb": 10 ** 7, "timeout_s": 86400},
+            {"prefix": "/api/", "max_body_mb": 2, "timeout_s": 60}]}})
         cls.thread = Thread(target=cls.backend.serve_forever, daemon=True)
         cls.thread.start()
+
+    @classmethod
+    def write_manifest(cls, name, manifest):
+        Path(cls.app_root.name, name).mkdir()
+        Path(cls.app_root.name, name, "manifest.json").write_text(json.dumps(manifest))
+        cls.module._app_proxy_cache.clear()
 
     @classmethod
     def tearDownClass(cls):
         cls.backend.shutdown()
         cls.thread.join()
         cls.backend.server_close()
+        cls.app_root.cleanup()
 
     def authenticated_client(self):
         client = self.module.app.test_client()
@@ -129,6 +155,53 @@ class SystemManagementProxyTests(TestCase):
             response = self.authenticated_client().post(path, data=big, headers={"Content-Type": "application/json"})
             self.assertEqual(response.status_code, 413, path)
             response.close()
+
+    def test_limits_default_without_a_matching_prefix(self):
+        m = self.module
+        default = (m.APP_PROXY_DEFAULT_MAX_BODY_BYTES, m.APP_PROXY_DEFAULT_TIMEOUT_SECONDS)
+        self.assertEqual(m._proxy_limits("sbd-configurator", "/api/compose"), default)
+        self.assertEqual(m._proxy_limits("sbd-configurator", "/api/user-data-x"), default)
+        self.assertEqual(m._proxy_limits("sbd-configurator", "/api/photos"), default)
+
+    def test_limits_from_the_manifest_first_match_wins(self):
+        m = self.module
+        mb = 1024 * 1024
+        self.assertEqual(m._proxy_limits("sbd-configurator", "/api/photos/board-x?side=front"), (512 * mb, 300))
+        self.assertEqual(m._proxy_limits("sbd-configurator", "/api/user-data?overwrite=1"), (512 * mb, 300))
+        self.assertEqual(m._proxy_limits("zz-huge", "/api/other"), (2 * mb, 60))
+
+    def test_limits_are_capped_by_the_ceiling(self):
+        m = self.module
+        self.assertEqual(m._proxy_limits("zz-huge", "/api/huge"),
+                         (m.APP_PROXY_MAX_ALLOWED_BODY_BYTES, m.APP_PROXY_MAX_ALLOWED_TIMEOUT_SECONDS))
+        self.assertEqual(m.APP_PROXY_MAX_ALLOWED_BODY_BYTES, 4 * 1024 ** 3)
+        self.assertEqual(m.APP_PROXY_MAX_ALLOWED_TIMEOUT_SECONDS, 600)
+
+    def test_missing_manifest_keeps_the_default_limit(self):
+        m = self.module
+        big = b"y" * (m.APP_PROXY_DEFAULT_MAX_BODY_BYTES + 1)
+        self.assertEqual(m._proxy_limits("zz-no-manifest", "/api/photos/x"),
+                         (m.APP_PROXY_DEFAULT_MAX_BODY_BYTES, m.APP_PROXY_DEFAULT_TIMEOUT_SECONDS))
+        response = self.authenticated_client().post("/app/zz-no-manifest/api/photos/x", data=big,
+                                                    headers={"Content-Type": "application/zip"})
+        self.assertEqual(response.status_code, 413)
+        response.close()
+        # an app built elsewhere without a "proxy" entry keeps its built-in limits (FPGA flasher)
+        self.assertEqual(m._proxy_limits("fpga-flasher-webapp", "/api/v1/artifacts"), (32 * 1024 * 1024, 300))
+
+    def test_session_cookie_is_named_after_the_appliance(self):
+        m = self.module
+        with tempfile.NamedTemporaryFile("w", suffix="hostname") as f:
+            f.write("sbd-configurator\n")
+            f.flush()
+            self.assertEqual(m._session_cookie_name(f.name), "session-sbd-configurator")
+        self.assertEqual(m._session_cookie_name("/nonexistent/hostname"), "session")
+        with mock.patch.dict(m.app.config, {"SESSION_COOKIE_NAME": "session-sbd-configurator"}), \
+                mock.patch.object(m, "verify_shadow_password", lambda user, password: True):
+            response = m.app.test_client().post("/login", data={"username": "admin", "password": "x"})
+            self.assertEqual(response.status_code, 302)
+            cookies = response.headers.getlist("Set-Cookie")
+            self.assertTrue(any(c.startswith("session-sbd-configurator=") for c in cookies), cookies)
 
     def test_fpga_write_rejects_missing_browser_contract_headers(self):
         response = self.authenticated_client().post(

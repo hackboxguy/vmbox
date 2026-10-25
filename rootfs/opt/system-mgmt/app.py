@@ -33,6 +33,7 @@ Endpoints:
 """
 
 import os
+import re
 import socket
 import subprocess
 import json
@@ -58,6 +59,22 @@ app.secret_key = os.urandom(24)  # Generate random secret key on startup
 app.config['PERMANENT_SESSION_LIFETIME'] = SESSION_TIMEOUT
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+HOSTNAME_FILE = '/etc/hostname'
+
+
+def _session_cookie_name(hostname_file=HOSTNAME_FILE):
+    """'session-<appliance id>': the id is the hostname the image build writes (sbd-configurator, generic-flasher,
+    ...; the dashboard shows it), so two appliances reached on one host (NAT forwards on localhost) keep separate
+    logins. Falls back to Flask's 'session' when the file is missing or holds no usable name."""
+    try:
+        with open(hostname_file, 'r') as f:
+            name = f.read().strip()
+    except OSError:
+        return 'session'
+    return f'session-{name}' if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,62}', name) else 'session'
+
+
+app.config['SESSION_COOKIE_NAME'] = _session_cookie_name()
 
 # Setup logging for failed login attempts
 auth_logger = logging.getLogger('auth')
@@ -109,18 +126,30 @@ _app_port_cache = {}
 _app_port_cache_time = 0
 APP_PORT_CACHE_TTL = 60  # Cache TTL in seconds
 
-# The generic proxy is deliberately conservative.  The FPGA application needs
-# a larger upload allowance and a longer transfer window, but those bounds are
-# still finite so an authenticated browser cannot turn the system-management
+# The generic proxy is deliberately conservative.  An application that needs
+# a larger upload allowance or a longer transfer window names it per path in
+# its own manifest (/app/<name>/manifest.json):
+#   "proxy": {"limits": [{"prefix": "/api/photos/", "max_body_mb": 512, "timeout_s": 300}, ...]}
+# The first matching prefix wins (a prefix ending in '/' matches everything
+# below it, any other prefix the path itself or the path followed by '?' or
+# '/').  The bounds stay finite: a manifest cannot raise them above the
+# ceiling, so an authenticated browser cannot turn the system-management
 # process into an unbounded relay.
 APP_PROXY_DEFAULT_MAX_BODY_BYTES = 1024 * 1024
-APP_PROXY_FPGA_UPLOAD_MAX_BODY_BYTES = 32 * 1024 * 1024
 APP_PROXY_DEFAULT_TIMEOUT_SECONDS = 30
-APP_PROXY_FPGA_TRANSFER_TIMEOUT_SECONDS = 300
-# SBD configurator: product photos straight from a camera, and the user-data pack ("My data": profiles, parts,
-# price sets, pictures, photos) users carry from one appliance release to the next
-APP_PROXY_SBD_UPLOAD_MAX_BODY_BYTES = 512 * 1024 * 1024
-APP_PROXY_SBD_TRANSFER_TIMEOUT_SECONDS = 300
+APP_PROXY_MAX_ALLOWED_BODY_BYTES = 4 * 1024 * 1024 * 1024
+APP_PROXY_MAX_ALLOWED_TIMEOUT_SECONDS = 600
+APP_DIR_ROOT = '/app'
+# Limits of an app whose manifest has no "proxy" entry yet (the FPGA flasher
+# is built from a separate repository; drop this once its manifest carries them).
+APP_PROXY_BUILTIN_LIMITS = {
+    'fpga-flasher-webapp': [
+        {'prefix': '/api/v1/artifacts', 'max_body_mb': 32, 'timeout_s': 300},
+        {'prefix': '/api/v1/backups/', 'max_body_mb': 32, 'timeout_s': 300},
+    ],
+}
+_app_proxy_cache = {}
+_app_proxy_cache_time = 0
 APP_PROXY_STREAM_CHUNK_BYTES = 64 * 1024
 HOP_BY_HOP_HEADERS = {
     'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
@@ -223,14 +252,50 @@ def get_app_ports():
     return {}
 
 
+def _app_proxy_entries(app_name):
+    """The app manifest's "proxy"."limits" list (cached like the ports); None without a manifest or entry."""
+    global _app_proxy_cache, _app_proxy_cache_time
+    current_time = time.time()
+    if (current_time - _app_proxy_cache_time) >= APP_PORT_CACHE_TTL:
+        _app_proxy_cache, _app_proxy_cache_time = {}, current_time
+    if app_name not in _app_proxy_cache:
+        entries = None
+        if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', app_name) and '..' not in app_name:
+            try:
+                with open(os.path.join(APP_DIR_ROOT, app_name, 'manifest.json'), 'r') as f:
+                    limits = ((json.load(f) or {}).get('proxy') or {}).get('limits')
+                if isinstance(limits, list):
+                    entries = [e for e in limits if isinstance(e, dict) and isinstance(e.get('prefix'), str)
+                               and e['prefix'].startswith('/')]
+            except (OSError, ValueError, AttributeError):
+                entries = None
+        _app_proxy_cache[app_name] = entries
+    return _app_proxy_cache[app_name]
+
+
+def _prefix_matches(prefix, path):
+    if prefix.endswith('/'):
+        return path.startswith(prefix)
+    return path == prefix or (path.startswith(prefix) and path[len(prefix)] in '?/')
+
+
+def _bounded(value, unit, default, ceiling):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return default
+    return min(int(value * unit), ceiling)
+
+
 def _proxy_limits(app_name, path):
     """Return the body bound and backend timeout for one proxied request."""
-    if app_name == 'fpga-flasher-webapp':
-        if path.startswith('/api/v1/artifacts') or path.startswith('/api/v1/backups/'):
-            return APP_PROXY_FPGA_UPLOAD_MAX_BODY_BYTES, APP_PROXY_FPGA_TRANSFER_TIMEOUT_SECONDS
-    if app_name == 'sbd-configurator':
-        if path.startswith('/api/photos/') or path == '/api/user-data' or path.startswith('/api/user-data?'):
-            return APP_PROXY_SBD_UPLOAD_MAX_BODY_BYTES, APP_PROXY_SBD_TRANSFER_TIMEOUT_SECONDS
+    entries = _app_proxy_entries(app_name)
+    if entries is None:
+        entries = APP_PROXY_BUILTIN_LIMITS.get(app_name, [])
+    for entry in entries:
+        if _prefix_matches(entry['prefix'], path):
+            return (_bounded(entry.get('max_body_mb'), 1024 * 1024, APP_PROXY_DEFAULT_MAX_BODY_BYTES,
+                             APP_PROXY_MAX_ALLOWED_BODY_BYTES),
+                    _bounded(entry.get('timeout_s'), 1, APP_PROXY_DEFAULT_TIMEOUT_SECONDS,
+                             APP_PROXY_MAX_ALLOWED_TIMEOUT_SECONDS))
     return APP_PROXY_DEFAULT_MAX_BODY_BYTES, APP_PROXY_DEFAULT_TIMEOUT_SECONDS
 
 

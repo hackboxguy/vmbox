@@ -8,7 +8,8 @@
 //
 //   node tests/appliance/converter.mjs --host=127.0.0.1 --port=8000 --password=… --pdf=<public datasheet.pdf>
 //        [--package=<layout-2 library package>] [--factory-reset=1] [--out=result.txt]
-//   node tests/appliance/converter.mjs … --bundle=<data bundle .tar>   (only the restore rehearsal, twice)
+//   node tests/appliance/converter.mjs … --bundle=<data bundle .tar>   (only the restore rehearsal, twice; the verify must
+//        report no warnings, i.e. content-hash checked, unless --allow-warnings=1)
 //   (or: make appliance-test APP=converter HOST=… PORT=… APPLIANCE_PASSWORD=… PDF=…)
 // Run against 127.0.0.1 / localhost (or https): the page hashes a dropped file only in a secure context.
 import { basename } from "node:path";
@@ -60,6 +61,11 @@ if (a.bundle) {
         const ver = await http.req("POST", `${APP}/api/bundle/verify`, { body: JSON.stringify({ chunks: n }), type: "application/json" });
         const vs = ((Date.now() - t) / 1000).toFixed(1);
         r.check(`restore ${round}: verified in ${vs} s (${JSON.stringify(ver.json?.bundle?.counts || {})})`, ver.status === 200 && ver.json?.bundle, ver.json || ver.status);
+        // partkb-0.7.2: a bundle with per-file content hashes (file_sha256) verifies without warnings; a size-only
+        // check (an older bundle, or an image before 0.7.2) answers with a warning
+        if (a["allow-warnings"] !== "1")
+            r.check(`restore ${round}: verified with content hashes (no warnings)`, ver.status === 200 && !(ver.json?.bundle?.warnings || []).length,
+                    ver.json?.bundle?.warnings);
         t = Date.now();
         const res = await http.req("POST", `${APP}/api/bundle/restore`, { body: JSON.stringify({ confirm: true }), type: "application/json" });
         const rs = ((Date.now() - t) / 1000).toFixed(1);

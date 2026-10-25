@@ -262,6 +262,10 @@ image version and data partition, and both are reached through the vmbox dashboa
 | data partition | 1 GB: `/data/app-data/sbd-configurator/` (profiles, parts, price sets, pictures, photos, `library-overlay/`) | 16 GB dynamically allocated VDI: `/data/app-data/partkb-converter/` (store, data repository, working library, packages, jobs) and `/data/app-config/partkb-converter/` (Azure key 0600, settings) |
 | moving to a new release | "My data" pack (download on the old VM, load on the new one) | data bundle on the Data tab (download, restore in 64 MB chunks) |
 
+- **Current images (2026-10-26):** configurator `vmbox-sbd-configurator-v0.16.0` (configurator-0.16.0) and converter
+  **`vmbox-partkb-converter-v0.3.0`** (partkb-0.7.2: the data bundle's per-file content hashes are checked on
+  restore). The converter 0.3.0 is the image for the owner's P5 (partkb `docs/partkb-vm-plan.md` §9). OVAs in
+  `/home/adav/extended-disk/vmbox-ova/`.
 - **Cookies:** the dashboard's session cookie is `session-<hostname>-<image version>`. Two appliances, or two
   releases of one appliance (the old and the new VM during a move), reached on one host keep separate logins.
 - **Proxy limits** come from each app's manifest: `"proxy": {"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`;

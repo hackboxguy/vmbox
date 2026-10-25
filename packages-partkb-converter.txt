@@ -5,4 +5,4 @@
 # (/app/partkb-converter/): the build forwards no app port.
 #
 # Format: name|repo|tag|cmake args|build deps|port|priority|type|description
-partkb-converter|file://${PROJECT_ROOT}/apps/partkb|partkb-0.7.0|-DVMBOX_BUILD=ON -DTEXT_TO_BLOCK_DIR=${PROJECT_ROOT}/apps/text-to-block|cmake,git|8009|30|webapp|partkb converter
+partkb-converter|file://${PROJECT_ROOT}/apps/partkb|partkb-0.7.2|-DVMBOX_BUILD=ON -DTEXT_TO_BLOCK_DIR=${PROJECT_ROOT}/apps/text-to-block|cmake,git|8009|30|webapp|partkb converter

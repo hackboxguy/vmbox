@@ -185,6 +185,13 @@ and passes the user as `X-VMBOX-Actor`. The system-mgmt proxy takes each app's u
 600 s) and names its session cookie after `/etc/hostname` (`session-partkb-converter`, `session-sbd-configurator`),
 so two appliances on one host keep separate logins.
 
+The base rootfs pip-installs `openai==1.35.13` and `httpx==0.27.2` for every image (`config.sh`). The partkb converter
+uses neither the base `openai` package (it calls Azure OpenAI with httpx directly) nor the base's pip copy of httpx:
+its runtime hook installs Alpine's `py3-httpx` (also 0.27.2), which apk owns from then on. Both copies stay for now
+(decided 2026-10-25: not worth a base change). PyMuPDF is the pinned musllinux wheel, installed with
+`pip --require-hashes` from `packages/partkb-runtime-dependencies-hook-requirements.txt`, which
+`scripts/02-build-packages.sh` copies into the chroot next to the hook.
+
 ---
 
 ## WebUI Considerations

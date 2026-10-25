@@ -1,0 +1,4 @@
+# PyMuPDF musllinux wheel for the partkb converter (packages/partkb-runtime-dependencies-hook.sh), pinned by
+# SHA-256: pip install --require-hashes. The hash is of the PyPI file pymupdf-1.28.2-cp310-abi3-musllinux_1_2_x86_64.whl.
+pymupdf==1.28.2 \
+    --hash=sha256:f89fb2d86d07d643a269f17a093105057e20c79c1d06c103b53600067b6d2b01

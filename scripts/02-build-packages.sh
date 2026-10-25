@@ -268,13 +268,18 @@ run_setup_hooks() {
         hook_basename=$(basename "$hook_script")
         cp "$hook_script" "${ROOTFS_DIR}/tmp/${hook_basename}"
         chmod +x "${ROOTFS_DIR}/tmp/${hook_basename}"
+        # Optional pip requirements next to the hook (<hook>-requirements.txt, e.g. hash-pinned wheels)
+        local hook_req="${hook_script%.sh}-requirements.txt"
+        if [ -f "$hook_req" ]; then
+            cp "$hook_req" "${ROOTFS_DIR}/tmp/$(basename "$hook_req")"
+        fi
 
         # Run hook in chroot
         run_in_chroot "$ROOTFS_DIR" "cd /tmp && ./${hook_basename}" || \
             error "Package hook failed: $hook_name"
 
         # Cleanup hook script
-        rm -f "${ROOTFS_DIR}/tmp/${hook_basename}"
+        rm -f "${ROOTFS_DIR}/tmp/${hook_basename}" "${ROOTFS_DIR}/tmp/$(basename "${hook_script%.sh}-requirements.txt")"
 
         # Unset environment variables
         unset HOOK_GIT_REPO HOOK_GIT_TAG HOOK_INSTALL_DEST HOOK_NAME

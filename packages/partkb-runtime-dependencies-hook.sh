@@ -4,7 +4,8 @@
 #
 # PyMuPDF: Alpine 3.21 has no py3-pymupdf (only edge/testing, masked here, and it needs edge's libmupdf), so the
 # pinned PyMuPDF musllinux wheel is installed with pip, binary only. PyMuPDF 2.0 ships no musllinux wheel (sdist
-# only, and the source build fails in this chroot); 1.28.2 is the newest with one (abi3, ~26 MB download).
+# only, and the source build fails in this chroot); 1.28.2 is the newest with one (abi3, ~26 MB download,
+# installed 65 MB).
 # Verified 2026-10-25 in the converter build chroot (Python 3.12.15).
 set -eu
 
@@ -17,8 +18,10 @@ apk add --no-cache \
     git \
     sqlite
 
-PYMUPDF_VERSION="1.28.2"
-pip3 install --no-cache-dir --break-system-packages --only-binary=:all: "pymupdf==${PYMUPDF_VERSION}"
+# pymupdf==1.28.2 pinned by the wheel's SHA-256 in partkb-runtime-dependencies-hook-requirements.txt (copied next to
+# this hook into the chroot by scripts/02-build-packages.sh)
+pip3 install --no-cache-dir --break-system-packages --only-binary=:all: --require-hashes \
+    -r /tmp/partkb-runtime-dependencies-hook-requirements.txt
 
 python3 - <<'PY'
 import httpx, jsonschema, pymupdf, sqlite3, yaml

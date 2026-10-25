@@ -3,4 +3,4 @@
 # text-to-block installs only its web configurator tree with -DVMBOX_BUILD=ON (no compilation). The source is the git
 # submodule apps/text-to-block (private repo); VERSION pins the tag the build takes out of it. On a release: bump
 # VERSION, git -C apps/text-to-block fetch --tags && git -C apps/text-to-block checkout <tag>, commit both together.
-sbd-configurator|file://${PROJECT_ROOT}/apps/text-to-block|configurator-0.15.4|-DVMBOX_BUILD=ON|cmake,git|8008|30|webapp|SBD configurator (text-to-block)
+sbd-configurator|file://${PROJECT_ROOT}/apps/text-to-block|configurator-0.15.5|-DVMBOX_BUILD=ON|cmake,git|8008|30|webapp|SBD configurator (text-to-block)

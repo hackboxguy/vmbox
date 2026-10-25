@@ -1,14 +1,20 @@
 // Acceptance test of a booted partkb converter appliance, through its dashboard (http://HOST:PORT): web plan §13
-// tests 1 (Settings), 3 (same PDF again: no upload request), 9 (factory reset, with --factory-reset=1) and 10 (stale /
-// foreign cookie, 7 tabs), plus login / cookie, the header (Azure not set, library version), the PDF upload through
-// the proxy (manifest limit 200 MB), the job without Azure settings, and the empty Cost page. Needs no Azure key and
-// never stores a real one (a dummy endpoint / key, removed again).
+// tests 1 (Settings), 3 (same PDF again: no upload request), 8 (Data tab: bundle download of the VM and its restore,
+// on an empty VM), 9 (factory reset, with --factory-reset=1) and 10 (stale / foreign cookie, 7 tabs), the baseline
+// upload as a job (--package=<layout-2 zip>: check job, install, header shows its version), plus login / cookie, the
+// header, the PDF upload through the proxy (manifest limit 200 MB), start without Azure settings (409 "Azure: not
+// set", partkb-0.7.0), and the empty Cost page. Needs no Azure key and never stores a real one (a dummy endpoint /
+// key, removed again).
 //
 //   node tests/appliance/converter.mjs --host=127.0.0.1 --port=8000 --password=… --pdf=<public datasheet.pdf>
-//        [--factory-reset=1] [--out=result.txt]
+//        [--package=<layout-2 library package>] [--factory-reset=1] [--out=result.txt]
 //   (or: make appliance-test APP=converter HOST=… PORT=… APPLIANCE_PASSWORD=… PDF=…)
 // Run against 127.0.0.1 / localhost (or https): the page hashes a dropped file only in a secure context.
 import { basename } from "node:path";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 import { args, reporter, Http, Browser, browserLogin, tabsTest } from "./lib.mjs";
 
 const a = args();
@@ -31,6 +37,59 @@ r.check("header names the installed library version", /configurator-/.test(st.li
 const docs0 = (await http.req("GET", `${APP}/api/documents`)).json?.documents || [];
 r.info(`${docs0.length} document(s) on the VM at start`);
 
+const sleep = ms => new Promise(z => setTimeout(z, ms));
+async function waitJob(id, ms = 600000) {
+    const t0 = Date.now();
+    for (;;) {
+        const j = (await http.req("GET", `${APP}/api/jobs/${id}`)).json || {};
+        if (["done", "failed", "error", "skipped", "cancelled"].includes(j.state) || Date.now() - t0 > ms) return j;
+        await sleep(1000);
+    }
+}
+
+// web plan §13 test 8 on the VM as it is (empty before the first upload): download the data bundle through the
+// proxy, upload it again in bounded chunks (each with Content-Length and its SHA-256), verify, restore
+const data0 = (await http.req("GET", `${APP}/api/data`)).json || {};
+r.info(`Data tab: ${JSON.stringify(data0.counts || {})}, restorable ${data0.restorable}`);
+const bun = await http.req("GET", `${APP}/api/bundle`);
+r.check(`Data: bundle download (${(bun.buf.length / 1024).toFixed(0)} kB tar)`, bun.status === 200 && bun.buf.length > 1024
+        && bun.buf.subarray(257, 262).toString() === "ustar", bun.status);
+if (bun.status === 200) {
+    const CH = 8 * 1024 * 1024;
+    let n = 0, okc = true;
+    for (let off = 0; off < bun.buf.length; off += CH, n++) {
+        const part = bun.buf.subarray(off, off + CH);
+        const up = await http.req("PUT", `${APP}/api/bundle/upload/${n}`, { body: part, type: "application/octet-stream",
+            headers: { "X-Chunk-SHA256": createHash("sha256").update(part).digest("hex") } });
+        okc &&= up.status === 200;
+    }
+    r.check(`Data: bundle uploaded again in ${n} chunk(s)`, okc);
+    const ver = await http.req("POST", `${APP}/api/bundle/verify`, { body: JSON.stringify({ chunks: n }), type: "application/json" });
+    r.check("Data: bundle verified", ver.status === 200 && ver.json?.bundle, ver.json || ver.status);
+    const res = await http.req("POST", `${APP}/api/bundle/restore`, { body: JSON.stringify({ confirm: true }), type: "application/json" });
+    r.check(`Data: bundle restored (${(res.json?.restored || []).join(", ")}), same counts`,
+            res.status === 200 && JSON.stringify(res.json?.counts) === JSON.stringify(data0.counts), res.json || res.status);
+}
+
+// the baseline upload as a job: package -> baseline-check job -> install -> the header names its version
+if (a.package) {
+    const zbuf = readFileSync(a.package);
+    const man = JSON.parse(execZipManifest(zbuf));
+    const up = await http.req("POST", `${APP}/api/library-package`, { body: zbuf, type: "application/zip" });
+    r.check(`baseline: package ${basename(a.package)} accepted, check job queued`, up.status === 200 && up.json?.id, up.json || up.status);
+    if (up.json?.id) {
+        const j = await waitJob(up.json.id);
+        r.check(`baseline: check job ${j.state} (${(j.row?.check || []).slice(-1)[0] || j.error || ""})`, j.state === "done" && j.row?.ok, { state: j.state, row: j.row, error: j.error });
+        if (j.row?.ok) {
+            const ins = await http.req("POST", `${APP}/api/library-package/install`, { body: JSON.stringify({ job: j.id }), type: "application/json" });
+            r.check("baseline: installed", ins.status === 200, ins.json || ins.status);
+            const st2 = (await http.req("GET", `${APP}/api/status`)).json || {};
+            r.check(`baseline: header shows ${man.library_version} ("${st2.library?.version}")`,
+                    (st2.library?.version || "").includes(man.library_version), st2.library);
+        }
+    }
+}
+
 // web plan §13 test 10 (first half): a stale or foreign cookie leads to the login page, then the app works
 const stale = new Http(base);
 stale.jar = { [COOKIE]: "stale-from-a-previous-vm", "session-sbd-configurator": "foreign-cookie" };
@@ -38,7 +97,7 @@ const sp = await stale.req("GET", `${APP}/`);
 const sa = await stale.req("GET", `${APP}/api/status`);
 r.check("stale / foreign cookies: the page redirects to the login (302 /login)",
         sp.status === 302 && /\/login/.test(sp.headers.get("location") || ""), sp.status);
-r.info(`stale cookie on ${APP}/api/status: ${sa.status} (the proxy redirects app API paths too; 401 only on the dashboard's own /api/)`);
+r.check("stale / foreign cookies: an app API path answers 401 (JSON), not the login page (vmbox Y-1)", sa.status === 401 && sa.json?.error, [sa.status, sa.json]);
 await stale.login(a.user, a.password);
 r.check("after logging in again the app works", (await stale.req("GET", `${APP}/api/status`)).status === 200);
 
@@ -58,7 +117,8 @@ try {
                               60000, "header");
     r.check(`page header shows "${head}"`, /not set/.test(head), head);
     const lib = await p.eval("document.querySelector('#h-lib').innerText");
-    r.check(`page header shows the library (${lib})`, /configurator-/.test(lib), lib);
+    const libNow = ((await http.req("GET", `${APP}/api/status`)).json || {}).library?.version || "?";
+    r.check(`page header shows the working library (${lib})`, lib.includes(libNow), { header: lib, api: libNow });
 
     // web plan §13 test 1: Settings save -> reload shows only the hint -> remove
     await p.eval(`(() => { document.querySelector('[data-tab=settings]').click();
@@ -115,16 +175,12 @@ try {
         const d = list.find(x => n1.includes(x.short) || n2.includes(x.short)) || list[list.length - 1];
         r.check(`the document is listed (${d?.short}, state ${d?.state_label})`, !!d, list.length);
         if (d) {
-            const j = (await http.req("POST", `${APP}/api/documents/${d.sha}/start`, { body: "{}", type: "application/json" })).json || {};
-            let job = j;
-            for (let i = 0; i < 120 && j.id && !["done", "failed", "error", "cancelled"].includes(job.state); i++) {
-                await new Promise(z => setTimeout(z, 1000));
-                job = (await http.req("GET", `${APP}/api/jobs/${j.id}`)).json || {};
-            }
-            const text = JSON.stringify({ state: job.state, error: job.error, row: job.row, log: (job.log || []).slice(-3) });
-            r.info(`job without Azure settings: ${text.slice(0, 300)}`);
-            r.check('the job without Azure settings fails with the clear "Azure: not set" message',
-                    job.state !== "done" && /azure/i.test(String(job.error || "") + JSON.stringify(job.log || [])) && /not set/i.test(text), text);
+            const doc = JSON.stringify((await http.req("GET", `${APP}/api/documents/${d.sha}`)).json || {});
+            r.check('the document shows "classified without a model"', /classified without a model/i.test(doc + n1), doc.slice(0, 200));
+            const sj = await http.req("POST", `${APP}/api/documents/${d.sha}/start`, { body: "{}", type: "application/json" });
+            r.info(`start without Azure settings: ${sj.status} ${JSON.stringify(sj.json).slice(0, 200)}`);
+            r.check('start without Azure settings answers 409 "Azure: not set" (no job)',
+                    sj.status === 409 && /Azure: not set/.test(sj.json?.error || ""), [sj.status, sj.json]);
         }
     }
 
@@ -165,3 +221,22 @@ if (a["factory-reset"] === "1") {
             up && s2?.azure?.state === "not-set" && !az.key_set && !az.endpoint && docs.length === 0, { up, azure: s2?.azure, az, docs: docs.length });
 }
 process.exit(r.done() ? 1 : 0);
+
+// manifest.json of a ZIP (stored or deflated), without a zip library: the central directory names its offset
+function execZipManifest(buf) {
+    const { inflateRawSync } = require("node:zlib");
+    let eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+    let cd = buf.readUInt32LE(eocd + 16), count = buf.readUInt16LE(eocd + 10);
+    for (let i = 0; i < count; i++) {
+        const method = buf.readUInt16LE(cd + 10), csize = buf.readUInt32LE(cd + 20), nlen = buf.readUInt16LE(cd + 28);
+        const xlen = buf.readUInt16LE(cd + 30), clen = buf.readUInt16LE(cd + 32), loc = buf.readUInt32LE(cd + 42);
+        const name = buf.subarray(cd + 46, cd + 46 + nlen).toString();
+        if (name === "manifest.json") {
+            const start = loc + 30 + buf.readUInt16LE(loc + 26) + buf.readUInt16LE(loc + 28);
+            const raw = buf.subarray(start, start + csize);
+            return (method === 8 ? inflateRawSync(raw) : raw).toString();
+        }
+        cd += 46 + nlen + xlen + clen;
+    }
+    throw new Error("no manifest.json in the package");
+}

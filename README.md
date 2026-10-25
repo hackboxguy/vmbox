@@ -277,19 +277,25 @@ would: HTTP with the dashboard login, plus headless chromium over CDP (Node >= 2
 part of `make check`. Pass the forwarded dashboard port and the dashboard password:
 
 ```bash
-APPLIANCE_PASSWORD=… make appliance-test APP=configurator HOST=127.0.0.1 PORT=8000
-APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8100 PDF=../data-sheets-collection/tps3704.pdf [ARGS=--factory-reset=1]
-APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 --converter-port=8100"
+APPLIANCE_PASSWORD=… make appliance-test APP=configurator HOST=127.0.0.1 PORT=8000 [ARGS="--package=<zip> --part=<id>"]
+APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8100 PDF=../data-sheets-collection/tps3704.pdf \
+    ARGS="--package=<layout-2 package of the repo> [--factory-reset=1]"
+APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 --converter-port=8100 [--second-app=sbd-configurator]"
 ```
 
 - `configurator`: login and cookie, photo upload over 1 MB and the 1 MB default (manifest `proxy.limits`), a profile
-  clone / PUT / render / export, "My data" download and load, the library-package endpoint off, and 7 tabs.
-  `ARGS="--overlay=1 --package=<zip> --part=<id>"` drives the "Library…" dialog once, on a VM started with
-  `SBD_LIBRARY_OVERLAY_DIR`.
-- `converter`: web plan §13 tests 1, 3, 9 (`--factory-reset=1`) and 10, the header, the PDF upload through the
-  proxy, and the empty Cost page. It sets a dummy Azure endpoint and key and removes them again; never pass a real
+  clone / PUT / render / export, "My data" download and load, the "Library…" dialog present (on by default since
+  configurator-0.16.0; `--overlay=0` for an older release), a dead session reloading the page to the login, and 7
+  tabs. `--package=<zip> --part=<id>` drives the dialog once: check, install, restart from the dashboard, the record
+  live, remove, restart.
+- `converter`: web plan §13 tests 1, 3, 8 (Data tab: bundle download of the VM, chunked upload, verify, restore),
+  9 (`--factory-reset=1`) and 10; the baseline upload as a job (`--package`: check job, install, header version);
+  the header; the PDF upload through the proxy; start without Azure settings (409 "Azure: not set"); the empty
+  Cost page. It sets a dummy Azure endpoint and key and removes them again; never pass a real
   key. Run it against 127.0.0.1 or localhost: the page hashes a dropped PDF only in a secure context.
-- `coexist`: both dashboards logged in, in one browser profile.
+- `coexist`: both dashboards logged in, in one browser profile. With `--second-app=sbd-configurator`, two
+  configurator releases on one host share the cookie name `session-sbd-configurator` and log each other out: use
+  `localhost` for one and `127.0.0.1` for the other, or a private window.
 
 ## Accessing the VM
 

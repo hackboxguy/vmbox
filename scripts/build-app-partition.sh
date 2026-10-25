@@ -225,6 +225,36 @@ fetch_source() {
     fi
 }
 
+# CMake options naming a host checkout (e.g. -DTEXT_TO_BLOCK_DIR=${PROJECT_ROOT}/apps/text-to-block for the partkb
+# converter): CMake runs inside the chroot, where the host path does not exist. Each option value written with
+# ${PROJECT_ROOT} is expanded on the host; a git checkout there (a submodule) is cloned into the chroot at the commit
+# it has checked out (the pinned tag, so git describe works) and the option is rewritten to the chroot path.
+# Prints the rewritten options.
+stage_cmake_path_deps() {
+    local name="$1"
+    local opts="$2"
+    local out="" opt key val host dest commit
+    for opt in ${opts//,/ }; do
+        if [[ "$opt" == -D*=* && "$opt" == *'${PROJECT_ROOT}'* ]]; then
+            key="${opt%%=*}"
+            val="${opt#*=}"
+            host="${val//'${PROJECT_ROOT}'/$PROJECT_ROOT}"
+            [ -e "${host}/.git" ] || error "$name: ${key#-D} = ${host}: not a git checkout (git submodule update --init)"
+            commit="$(git -c safe.directory='*' -C "$host" rev-parse HEAD)"
+            dest="${BUILD_DIR}/dep-${name}-$(basename "$host")"
+            rm -rf "${ROOTFS_DIR}${dest}"
+            git -c safe.directory='*' clone -q --no-checkout "$host" "${ROOTFS_DIR}${dest}" >&2 ||
+                error "$name: cannot clone $host"
+            git -c safe.directory='*' -C "${ROOTFS_DIR}${dest}" checkout -q "$commit" >&2 ||
+                error "$name: cannot check out $commit of $host"
+            info "Staged ${key#-D}: $host @ $(git -c safe.directory='*' -C "$host" describe --tags --always 2>/dev/null) -> $dest" >&2
+            opt="${key}=${dest}"
+        fi
+        out="${out:+$out }$opt"
+    done
+    printf '%s' "$out"
+}
+
 # Capture DNG webapp metadata from the original checkout before building in the
 # chroot. Local source copies intentionally omit hidden files such as .git, so
 # CMake would otherwise fall back to the base version.
@@ -839,7 +869,8 @@ build_all_packages() {
         # Install build dependencies
         install_build_deps "$PKG_BUILD_DEPS"
 
-        # Build the package
+        # Build the package (host checkouts named in the CMake options are staged into the chroot first)
+        PKG_CMAKE_OPTIONS="$(stage_cmake_path_deps "$PKG_NAME" "$PKG_CMAKE_OPTIONS")"
         build_package "$PKG_NAME" "$PKG_CMAKE_OPTIONS"
 
         # Remove build dependencies

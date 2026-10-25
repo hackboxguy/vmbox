@@ -300,7 +300,17 @@ purge_build_deps() {
 
     log "Purging build dependencies..."
 
-    local build_deps="${ALPINE_BUILD_PACKAGES[*]}"
+    # A hook that needs one of the build packages at runtime (the partkb converter: git) lists it in
+    # /etc/vmbox/runtime-packages; those stay installed.
+    local keep_file="${ROOTFS_DIR}/etc/vmbox/runtime-packages"
+    local build_deps="" pkg
+    for pkg in "${ALPINE_BUILD_PACKAGES[@]}"; do
+        if [ -f "$keep_file" ] && grep -qx "$pkg" "$keep_file"; then
+            info "Keeping $pkg (runtime package of a hook: /etc/vmbox/runtime-packages)"
+            continue
+        fi
+        build_deps="${build_deps:+$build_deps }$pkg"
+    done
     chroot_apk_del "$ROOTFS_DIR" "$build_deps"
 
     # Clean APK cache

@@ -9,6 +9,13 @@
 # Verified 2026-10-25 in the converter build chroot (Python 3.12.15).
 set -eu
 
+# git is also one of the image's build packages, which scripts/02-build-packages.sh removes after the hooks: list it
+# as a runtime package so it stays (the converter's data/ is a git repository).
+mkdir -p /etc/vmbox
+for p in git sqlite; do
+    grep -qx "$p" /etc/vmbox/runtime-packages 2>/dev/null || echo "$p" >> /etc/vmbox/runtime-packages
+done
+
 apk add --no-cache \
     python3 \
     py3-pip \

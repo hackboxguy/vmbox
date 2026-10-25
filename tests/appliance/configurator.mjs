@@ -1,8 +1,9 @@
 // Acceptance test of a booted SBD configurator appliance, through its dashboard (http://HOST:PORT, the forwarded
 // system-mgmt port): login and cookie, the manifest proxy limits (photo upload over 1 MB, default 1 MB elsewhere),
-// a profile clone / PUT / render / export, "My data" download and load, the library-package endpoint off (or, with
-// --overlay=1 --package=<zip> --part=<id>, the "Library…" dialog: check, install, app restart, record live, remove,
-// restart), and 7 open tabs with a further tab still loading.
+// a profile clone / PUT / render / export, "My data" download and load, the "Library…" dialog (on by default since
+// configurator-0.16.0; with --package=<zip> --part=<id> it runs once: check, install, app restart, record live,
+// remove, restart; --overlay=0 for an older release where it is off), a dead session reloading the page to the
+// login (0.16.0), and 7 open tabs with a further tab still loading.
 //
 //   node tests/appliance/configurator.mjs --host=127.0.0.1 --port=8000 --password=… [--out=result.txt]
 //   (or: make appliance-test APP=configurator HOST=… PORT=… APPLIANCE_PASSWORD=…)
@@ -67,7 +68,7 @@ r.check("test profile removed", dl.status === 200, dl.status);
 
 // library package: off without the flag; with --overlay=1 the dialog runs once
 const lp = await http.req("GET", `${APP}/api/library-package`);
-const overlay = a.overlay === "1";
+const overlay = a.overlay !== "0";
 r.check(`library-package endpoint ${overlay ? "enabled" : "off (404)"}`, overlay ? lp.status === 200 : lp.status === 404, lp.status);
 
 const b = await Browser.launch();
@@ -129,6 +130,17 @@ try {
             r.check("after the restart the release's library is back", !st2.json?.active && !st2.json?.installed
                     && (!a.part || !(parts2.json || []).some(x => x.id === a.part)), st2.json);
         }
+    }
+    // a dead dashboard session: the next API call answers 401 (vmbox) and the page reloads to the login (0.16.0)
+    if (a.reload401 !== "0") {
+        await p.goto(base + APP + "/");
+        await p.wait("document.querySelectorAll('#plist li').length > 0", 60000, "profile list");
+        await p.send("Network.deleteCookies", { name: COOKIE, url: base + "/" });
+        await p.eval("api('GET', '/api/profiles').catch(() => {}), true");
+        let loc;
+        try { loc = await p.wait("location.pathname === '/login' && location.pathname", 20000, "login page"); } catch { loc = await p.eval("location.pathname"); }
+        r.check("dead session: an API call answers 401 and the page reloads to the dashboard login", loc === "/login", loc);
+        await browserLogin(p, base, a.user, a.password);
     }
     await p.close();
     const ready = "document.readyState === 'complete' && document.body && document.body.innerText.length > 20";

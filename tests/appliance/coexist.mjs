@@ -8,13 +8,15 @@ import { args, reporter, Browser, browserLogin } from "./lib.mjs";
 const a = args();
 const r = reporter(a.out);
 const cfg = `http://${a.host}:${a["config-port"]}`, conv = `http://${a.host}:${a["converter-port"]}`;
-const apps = [[cfg, "/app/sbd-configurator/", "session-sbd-configurator"], [conv, "/app/partkb-converter/", "session-partkb-converter"]];
+// --second-app=sbd-configurator: two configurator releases side by side (both use session-sbd-configurator)
+const second = a["second-app"] || "partkb-converter";
+const apps = [[cfg, "/app/sbd-configurator/", "session-sbd-configurator"], [conv, `/app/${second}/`, `session-${second}`]];
 const b = await Browser.launch();
 try {
     const p = await b.page();
     for (const [base] of apps) await browserLogin(p, base, a.user, a.password);
     const names = (await p.cookies()).map(c => c.name);
-    r.check("both session cookies held side by side in one profile", apps.every(([, , c]) => names.includes(c)), names);
+    r.check("both session cookies held side by side in one profile", new Set(apps.map(x => x[2])).size === 2 && apps.every(([, , c]) => names.includes(c)), names);
     for (let round = 1; round <= 2; round++) {
         for (const [base, path] of apps) {
             await p.goto(base + path);

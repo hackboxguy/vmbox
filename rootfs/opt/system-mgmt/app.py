@@ -60,18 +60,37 @@ app.config['PERMANENT_SESSION_LIFETIME'] = SESSION_TIMEOUT
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 HOSTNAME_FILE = '/etc/hostname'
+IMAGE_VERSION_FILE = '/etc/image-version'     # VERSION=<x.y.z>, written by the build (the dashboard shows it)
+_COOKIE_PART = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,62}')
 
 
-def _session_cookie_name(hostname_file=HOSTNAME_FILE):
-    """'session-<appliance id>': the id is the hostname the image build writes (sbd-configurator, generic-flasher,
-    ...; the dashboard shows it), so two appliances reached on one host (NAT forwards on localhost) keep separate
-    logins. Falls back to Flask's 'session' when the file is missing or holds no usable name."""
+def _image_version(version_file=IMAGE_VERSION_FILE):
+    """VERSION= of the build's version file, or None."""
+    try:
+        with open(version_file, 'r') as f:
+            for line in f:
+                key, _, value = line.strip().partition('=')
+                if key == 'VERSION' and _COOKIE_PART.fullmatch(value.strip()):
+                    return value.strip()
+    except OSError:
+        pass
+    return None
+
+
+def _session_cookie_name(hostname_file=HOSTNAME_FILE, version_file=IMAGE_VERSION_FILE):
+    """'session-<appliance id>-<image version>': the id is the hostname the image build writes (sbd-configurator,
+    partkb-converter, ...), the version the build's /etc/image-version. Two appliances reached on one host (NAT
+    forwards on localhost) keep separate logins, and so do two releases of one appliance side by side (the old and the
+    new VM during a "My data" move). Falls back to 'session-<id>' without a version, then to Flask's 'session'."""
     try:
         with open(hostname_file, 'r') as f:
             name = f.read().strip()
     except OSError:
         return 'session'
-    return f'session-{name}' if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,62}', name) else 'session'
+    if not _COOKIE_PART.fullmatch(name):
+        return 'session'
+    version = _image_version(version_file)
+    return f'session-{name}-{version}' if version else f'session-{name}'
 
 
 app.config['SESSION_COOKIE_NAME'] = _session_cookie_name()

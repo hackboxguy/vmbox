@@ -189,12 +189,20 @@ class SystemManagementProxyTests(TestCase):
         # an app built elsewhere without a "proxy" entry keeps its built-in limits (FPGA flasher)
         self.assertEqual(m._proxy_limits("fpga-flasher-webapp", "/api/v1/artifacts"), (32 * 1024 * 1024, 300))
 
-    def test_session_cookie_is_named_after_the_appliance(self):
+    def test_session_cookie_is_named_after_the_appliance_and_its_release(self):
         m = self.module
-        with tempfile.NamedTemporaryFile("w", suffix="hostname") as f:
-            f.write("sbd-configurator\n")
-            f.flush()
-            self.assertEqual(m._session_cookie_name(f.name), "session-sbd-configurator")
+        with tempfile.TemporaryDirectory() as d:
+            host, ver = Path(d, "hostname"), Path(d, "image-version")
+            host.write_text("sbd-configurator\n")
+            ver.write_text("VERSION=0.16.0\nBUILD_MODE=incremental\nBUILD_DATE=2026-10-26_10:00:00_UTC\n")
+            self.assertEqual(m._session_cookie_name(host, ver), "session-sbd-configurator-0.16.0")
+            ver.write_text("VERSION=0.15.5\nALPINE_VERSION=3.21\n")
+            self.assertEqual(m._session_cookie_name(host, ver), "session-sbd-configurator-0.15.5")
+            ver.write_text("VERSION=bad version;x\n")
+            self.assertEqual(m._session_cookie_name(host, ver), "session-sbd-configurator")
+            self.assertEqual(m._session_cookie_name(host, Path(d, "missing")), "session-sbd-configurator")
+            host.write_text("bad host name\n")
+            self.assertEqual(m._session_cookie_name(host, ver), "session")
         self.assertEqual(m._session_cookie_name("/nonexistent/hostname"), "session")
         with mock.patch.dict(m.app.config, {"SESSION_COOKIE_NAME": "session-sbd-configurator"}), \
                 mock.patch.object(m, "verify_shadow_password", lambda user, password: True):

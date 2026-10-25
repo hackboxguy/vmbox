@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-import { args, reporter, Http, Browser, browserLogin, tabsTest } from "./lib.mjs";
+import { args, reporter, Http, Browser, browserLogin, tabsTest, isSessionCookie } from "./lib.mjs";
 
 const a = args();
 const base = `http://${a.host}:${a.port}`;
@@ -27,7 +27,7 @@ const DUMMY = { endpoint: "https://acceptance-test.example.invalid", deployment:
 const http = new Http(base);
 const li = await http.login(a.user, a.password);
 r.check("login through the dashboard form (302)", li.status === 302, li.status);
-r.check(`session cookie is named ${COOKIE}`, http.setCookies.some(c => c.startsWith(COOKIE + "=")), http.setCookies);
+r.check(`session cookie is named ${COOKIE}[-<version>] (${(http.setCookies[0] || "").split("=")[0]})`, http.setCookies.some(c => isSessionCookie(c.split("=")[0], COOKIE)), http.setCookies);
 const h = await http.req("GET", `${APP}/health`);
 r.check("app health through the proxy", h.status === 200 && h.json?.status === "ok", h.json || h.status);
 const st = (await http.req("GET", `${APP}/api/status`)).json || {};
@@ -92,7 +92,7 @@ if (a.package) {
 
 // web plan §13 test 10 (first half): a stale or foreign cookie leads to the login page, then the app works
 const stale = new Http(base);
-stale.jar = { [COOKIE]: "stale-from-a-previous-vm", "session-sbd-configurator": "foreign-cookie" };
+stale.jar = { [(http.setCookies[0] || COOKIE).split("=")[0]]: "stale-from-a-previous-vm", "session-sbd-configurator": "foreign-cookie" };
 const sp = await stale.req("GET", `${APP}/`);
 const sa = await stale.req("GET", `${APP}/api/status`);
 r.check("stale / foreign cookies: the page redirects to the login (302 /login)",
@@ -106,7 +106,7 @@ try {
     const p = await b.page();
     await browserLogin(p, base, a.user, a.password);
     const names = (await p.cookies()).map(c => c.name);
-    r.check(`browser login keeps the ${COOKIE} cookie`, names.includes(COOKIE), names);
+    r.check(`browser login keeps the ${COOKIE} cookie`, names.some(n => isSessionCookie(n, COOKIE)), names);
     const posts = [];
     b.handlers.push(m => {
         if (m.method === "Network.requestWillBeSent" && m.params.request.method === "POST" && /\/api\/documents\?/.test(m.params.request.url))

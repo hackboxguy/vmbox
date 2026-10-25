@@ -178,3 +178,6 @@ export function inflateJpeg(jpeg, size) {
     }
     return Buffer.concat([jpeg.subarray(0, 2), ...segs, jpeg.subarray(2)]);
 }
+
+// the dashboard's session cookie of an appliance: session-<appliance> or (vmbox W-1) session-<appliance>-<version>
+export const isSessionCookie = (name, appliance) => name === appliance || name.startsWith(appliance + "-");

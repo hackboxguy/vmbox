@@ -8,7 +8,7 @@
 //   node tests/appliance/configurator.mjs --host=127.0.0.1 --port=8000 --password=… [--out=result.txt]
 //   (or: make appliance-test APP=configurator HOST=… PORT=… APPLIANCE_PASSWORD=…)
 import { readFileSync } from "node:fs";
-import { args, reporter, Http, Browser, browserLogin, tabsTest, inflateJpeg } from "./lib.mjs";
+import { args, reporter, Http, Browser, browserLogin, tabsTest, isSessionCookie, inflateJpeg } from "./lib.mjs";
 
 const a = args();
 const base = `http://${a.host}:${a.port}`;
@@ -21,7 +21,7 @@ const id = `zz-acc-${Date.now().toString(36)}`;
 const http = new Http(base);
 const li = await http.login(a.user, a.password);
 r.check(`login through the dashboard form (302)`, li.status === 302, li.status);
-r.check(`session cookie is named ${COOKIE}`, http.setCookies.some(c => c.startsWith(COOKIE + "=")), http.setCookies);
+r.check(`session cookie is named ${COOKIE}[-<version>] (${(http.setCookies[0] || "").split("=")[0]})`, http.setCookies.some(c => isSessionCookie(c.split("=")[0], COOKIE)), http.setCookies);
 
 const h = await http.req("GET", `${APP}/health`);
 r.check("app health through the proxy", h.status === 200 && h.json?.status === "ok", h.json || h.status);
@@ -76,7 +76,7 @@ try {
     const p = await b.page();
     await browserLogin(p, base, a.user, a.password);
     const names = (await p.cookies()).map(c => c.name);
-    r.check(`browser login keeps the ${COOKIE} cookie`, names.includes(COOKIE), names);
+    r.check(`browser login keeps the ${COOKIE} cookie`, names.some(n => isSessionCookie(n, COOKIE)), names);
     await p.goto(base + APP + "/");
     await p.wait("document.querySelectorAll('#plist li').length > 0 && typeof document.querySelector('#btn-mydata').onclick === 'function'",
                  60000, "profile list");
@@ -135,7 +135,8 @@ try {
     if (a.reload401 !== "0") {
         await p.goto(base + APP + "/");
         await p.wait("document.querySelectorAll('#plist li').length > 0", 60000, "profile list");
-        await p.send("Network.deleteCookies", { name: COOKIE, url: base + "/" });
+        for (const c of (await p.cookies()).filter(c => isSessionCookie(c.name, COOKIE)))
+            await p.send("Network.deleteCookies", { name: c.name, url: base + "/" });
         await p.eval("api('GET', '/api/profiles').catch(() => {}), true");
         let loc;
         try { loc = await p.wait("location.pathname === '/login' && location.pathname", 20000, "login page"); } catch { loc = await p.eval("location.pathname"); }

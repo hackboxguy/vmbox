@@ -261,6 +261,27 @@ allocated VDI, holding `/data/app-data/partkb-converter/` (PDF store, data, work
 configurator VM (`session-sbd-configurator`) reached on the same host. As of 2026-10-25 the build runs up to the app
 step: partkb has no CMake install and no `partkb-0.3.0` tag yet (`--skip-tag-check` to try steps 1-2).
 
+### Appliance acceptance tests
+
+`tests/appliance/` holds acceptance tests that run against a booted VM through its dashboard, as a user's browser
+would: HTTP with the dashboard login, plus headless chromium over CDP (Node >= 22, `chromium` on PATH). They are not
+part of `make check`. Pass the forwarded dashboard port and the dashboard password:
+
+```bash
+APPLIANCE_PASSWORD=… make appliance-test APP=configurator HOST=127.0.0.1 PORT=8000
+APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8100 PDF=../data-sheets-collection/tps3704.pdf [ARGS=--factory-reset=1]
+APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 --converter-port=8100"
+```
+
+- `configurator`: login and cookie, photo upload over 1 MB and the 1 MB default (manifest `proxy.limits`), a profile
+  clone / PUT / render / export, "My data" download and load, the library-package endpoint off, and 7 tabs.
+  `ARGS="--overlay=1 --package=<zip> --part=<id>"` drives the "Library…" dialog once, on a VM started with
+  `SBD_LIBRARY_OVERLAY_DIR`.
+- `converter`: web plan §13 tests 1, 3, 9 (`--factory-reset=1`) and 10, the header, the PDF upload through the
+  proxy, and the empty Cost page. It sets a dummy Azure endpoint and key and removes them again; never pass a real
+  key. Run it against 127.0.0.1 or localhost: the page hashes a dropped PDF only in a secure context.
+- `coexist`: both dashboards logged in, in one browser profile.
+
 ## Accessing the VM
 
 | Service | URL/Command |

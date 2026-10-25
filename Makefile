@@ -6,6 +6,7 @@
 #   make lint-python   - Run Python syntax check on core files
 #   make smoke-test    - Validate package files and config
 #   make check         - Run lint + smoke-test
+#   make appliance-test APP=configurator|converter|coexist HOST=… PORT=… - acceptance tests against a booted VM
 
 SHELL := /bin/bash
 
@@ -32,11 +33,13 @@ PYTHON_FILES := \
 	rootfs/opt/business-app/app.py \
 	apps/hello-world/src/app.py
 
-.PHONY: lint lint-shell lint-python smoke-test check help
+.PHONY: lint lint-shell lint-python smoke-test check help appliance-test
 
 help:
 	@echo "Available targets:"
 	@echo "  make lint          - Run all linters (shellcheck + python)"
+	@echo "  make appliance-test APP=configurator|converter|coexist HOST=127.0.0.1 PORT=8000 [PDF=x.pdf] [ARGS=...]"
+	@echo "                     - acceptance tests against a booted VM (password in APPLIANCE_PASSWORD; not in check)"
 	@echo "  make lint-shell    - Run shellcheck on core build scripts"
 	@echo "  make lint-python   - Run Python syntax check"
 	@echo "  make smoke-test    - Validate package files and script syntax"
@@ -69,3 +72,12 @@ smoke-test:
 check: lint smoke-test
 	@echo ""
 	@echo "All checks passed."
+
+# Appliance acceptance tests (tests/appliance/, headless chromium over CDP + HTTP through the dashboard). They need a
+# booted VM, so they are not part of `make check`. The dashboard password comes from APPLIANCE_PASSWORD.
+APP ?= configurator
+HOST ?= 127.0.0.1
+PORT ?= 8000
+appliance-test:
+	@test -n "$$APPLIANCE_PASSWORD" || { echo "set APPLIANCE_PASSWORD (the dashboard login of the VM)"; exit 2; }
+	node tests/appliance/$(APP).mjs --host=$(HOST) --port=$(PORT) $(if $(PDF),--pdf=$(PDF)) $(ARGS)

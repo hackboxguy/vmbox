@@ -8,6 +8,7 @@
 //
 //   node tests/appliance/converter.mjs --host=127.0.0.1 --port=8000 --password=… --pdf=<public datasheet.pdf>
 //        [--package=<layout-2 library package>] [--factory-reset=1] [--out=result.txt]
+//   node tests/appliance/converter.mjs … --bundle=<data bundle .tar>   (only the restore rehearsal, twice)
 //   (or: make appliance-test APP=converter HOST=… PORT=… APPLIANCE_PASSWORD=… PDF=…)
 // Run against 127.0.0.1 / localhost (or https): the page hashes a dropped file only in a secure context.
 import { basename } from "node:path";
@@ -36,6 +37,45 @@ r.check('header state: "Azure: not set"', st.azure?.state === "not-set", st.azur
 r.check("header names the installed library version", /configurator-/.test(st.library?.version || ""), st.library);
 const docs0 = (await http.req("GET", `${APP}/api/documents`)).json?.documents || [];
 r.info(`${docs0.length} document(s) on the VM at start`);
+
+// --bundle=<tar>: the restore rehearsal only (Fable v5 W-2): upload in 64 MB chunks (each its own request with
+// Content-Length and X-Chunk-SHA256, under the manifest's 128 MB / 600 s), verify, confirm; twice (the second
+// restore replaces the previous generation); the document list and the Cost tab show the bundle's counts.
+if (a.bundle) {
+    const buf = readFileSync(a.bundle);
+    const CH = 64 * 1024 * 1024;
+    for (const round of [1, 2]) {
+        const t0 = Date.now(), times = [];
+        let n = 0, okc = true;
+        for (let off = 0; off < buf.length; off += CH, n++) {
+            const part = buf.subarray(off, off + CH), t = Date.now();
+            const up = await http.req("PUT", `${APP}/api/bundle/upload/${n}`, { body: part, type: "application/octet-stream",
+                headers: { "X-Chunk-SHA256": createHash("sha256").update(part).digest("hex") } });
+            times.push(((Date.now() - t) / 1000).toFixed(1));
+            okc &&= up.status === 200 && up.json?.bytes === part.length;
+            if (up.status !== 200) r.info(`chunk ${n}: ${up.status} ${JSON.stringify(up.json).slice(0, 200)}`);
+        }
+        r.check(`restore ${round}: ${(buf.length / 1048576).toFixed(0)} MB in ${n} chunks of <= 64 MB through the proxy (s per chunk: ${times.join(", ")})`, okc);
+        let t = Date.now();
+        const ver = await http.req("POST", `${APP}/api/bundle/verify`, { body: JSON.stringify({ chunks: n }), type: "application/json" });
+        const vs = ((Date.now() - t) / 1000).toFixed(1);
+        r.check(`restore ${round}: verified in ${vs} s (${JSON.stringify(ver.json?.bundle?.counts || {})})`, ver.status === 200 && ver.json?.bundle, ver.json || ver.status);
+        t = Date.now();
+        const res = await http.req("POST", `${APP}/api/bundle/restore`, { body: JSON.stringify({ confirm: true }), type: "application/json" });
+        const rs = ((Date.now() - t) / 1000).toFixed(1);
+        r.check(`restore ${round}: confirmed in ${rs} s, ${(res.json?.restored || []).length} parts swapped in, previous generation ${res.json?.kept_generation}`,
+                res.status === 200 && (res.json?.restored || []).length > 0, res.json || res.status);
+        const want = ver.json?.bundle?.counts || {};
+        const docs = (await http.req("GET", `${APP}/api/documents`)).json || {};
+        const cost = (await http.req("GET", `${APP}/api/cost`)).json || {};
+        const ndocs = docs.total ?? (docs.documents || []).length;
+        r.check(`restore ${round}: document list shows the bundle's ${want.documents} documents (${ndocs})`, ndocs === want.documents, { docs: ndocs, want });
+        r.check(`restore ${round}: Cost tab shows the bundle's ${want.calls} calls / USD ${want.cost_usd} (${cost.calls} / ${cost.total_usd})`,
+                cost.calls === want.calls && Math.abs((cost.total_usd || 0) - (want.cost_usd || 0)) < 0.01, { cost: [cost.calls, cost.total_usd], want });
+        r.info(`restore ${round} total ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+    }
+    process.exit(r.done() ? 1 : 0);
+}
 
 const sleep = ms => new Promise(z => setTimeout(z, ms));
 async function waitJob(id, ms = 600000) {

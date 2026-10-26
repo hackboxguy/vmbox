@@ -10,7 +10,9 @@
 #   - data partition 16 GB in a dynamically allocated VDI (the raw image is sparse; the VDI grows with use);
 #   - no direct app port: the web UI listens on 127.0.0.1:8009 and is reached only through the dashboard proxy
 #     (/app/partkb-converter/), so 04-convert-to-vbox.sh gets no --appdir and forwards no app port;
-#   - 2 vCPU, 2 GB RAM.
+#   - 2 vCPU, 2 GB RAM;
+#   - its own NAT host ports: dashboard 8010, web terminal 8013, SSH 2223 (guest 8000 / 8003 / 22), so it coexists
+#     with a configurator VM at its stock ports (8000 / 8008 / 8003 / 2222) on the same host.
 #
 # State 2026-10-25: partkb has no CMake install yet and the pinned tag partkb-0.3.0 does not exist (the partkb
 # session's web-app step 5). --skip-tag-check runs steps 1-2 and stops at the app step with that error.
@@ -22,7 +24,7 @@
 #   ./build-partkb-converter-ova.sh --version=0.1.0 --clean
 #   ./build-partkb-converter-ova.sh --version=0.1.0 --dry-run
 #
-# After boot: dashboard http://localhost:8000 -> Applications -> partkb converter (proxied at /app/partkb-converter/).
+# After boot: dashboard http://localhost:8010 -> Applications -> partkb converter (proxied at /app/partkb-converter/).
 # Data: /data/app-data/partkb-converter/ (store, data, library, packages, jobs); key and settings in
 # /data/app-config/partkb-converter/ (cleared by factory reset).
 #
@@ -43,6 +45,9 @@ DATA_PART_SIZE="16384M"
 APP_PART_SIZE="300M"
 VM_MEMORY_MB="2048"
 VM_CPUS="2"
+HOST_DASHBOARD_PORT="8010"    # NAT host ports (guest 8000 / 8003 / 22); see the 04-convert-to-vbox.sh call
+HOST_WEBTERMINAL_PORT="8013"
+HOST_SSH_PORT="2223"
 SKIP_TAG_CHECK=false
 VM_NAME=""
 CLEAN=false
@@ -161,7 +166,7 @@ echo "  app     : ${APP_REPO} @ ${APP_TAG}"
 echo "  vm name : ${VM_NAME}"
 echo "  output  : ${OUTPUT_DIR}"
 echo "  parts   : os=${OS_PART_SIZE} data=${DATA_PART_SIZE} (dynamic VDI) app=${APP_PART_SIZE}"
-echo "  vm      : ${VM_CPUS} vCPU, ${VM_MEMORY_MB} MB; forwards: dashboard 8000, ssh, web terminal (no app port)"
+echo "  vm      : ${VM_CPUS} vCPU, ${VM_MEMORY_MB} MB; forwards: dashboard ${HOST_DASHBOARD_PORT}->8000, web terminal ${HOST_WEBTERMINAL_PORT}->8003, ssh ${HOST_SSH_PORT}->22 (no app port)"
 echo "=================================================="
 
 if [ "$DRY_RUN" = true ]; then
@@ -234,6 +239,11 @@ convert_args=(
     --memory="$VM_MEMORY_MB"
     --cpus="$VM_CPUS"
     --force                                       # no --appdir: no direct port forward for 8009 (VM plan §7.4)
+    # Own host ports: coexists with a configurator VM at its stock ports (8000 / 8008 / 8003 / 2222) on the same
+    # host, so both OVAs import and run side by side unchanged. Guest ports stay 8000 / 8003 / 22.
+    --sysmgmt-port="${HOST_DASHBOARD_PORT}"
+    --webterminal-port="${HOST_WEBTERMINAL_PORT}"
+    --ssh-port="${HOST_SSH_PORT}"
 )
 [ "$EXPORT_OVA" = true ] && convert_args+=(--export-ova)
 "${SCRIPT_DIR}/scripts/04-convert-to-vbox.sh" "${convert_args[@]}"
@@ -245,7 +255,7 @@ fi
 
 echo ""
 echo "Done. VM '${VM_NAME}' registered."
-echo "Open http://localhost:8000 -> Applications -> partkb converter (no direct port; through the dashboard only)."
+echo "Open http://localhost:${HOST_DASHBOARD_PORT} -> Applications -> partkb converter (no direct port; through the dashboard only)."
 if [ "$EXPORT_OVA" = true ]; then
     echo "OVA exported under ${OUTPUT_DIR} (see 04-convert-to-vbox.sh output above)."
 fi

@@ -30,3 +30,4 @@ Thumbs.db
 
 # Shared folder contents (user data)
 shared/
+__pycache__/

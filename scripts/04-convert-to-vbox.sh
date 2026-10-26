@@ -7,6 +7,7 @@
 #
 # Usage:
 #   ./04-convert-to-vbox.sh --input=/path/to/image.raw --vmname=alpine-demo
+#   ./04-convert-to-vbox.sh ... --ssh-port=2223 --sysmgmt-port=8010 --webterminal-port=8013   (other host ports)
 #
 set -e
 
@@ -116,7 +117,13 @@ Optional Arguments:
   --output=DIR          Output directory for VDI (default: same as input)
   --memory=MB           VM memory in MB (default: ${DEFAULT_VM_MEMORY})
   --cpus=N              Number of CPUs (default: ${DEFAULT_VM_CPUS})
-  --ssh-port=HOST:GUEST SSH port forwarding (default: ${DEFAULT_SSH_PORT})
+  --ssh-port=HOST[:GUEST]
+                        SSH port forwarding (default: ${DEFAULT_SSH_PORT})
+  --sysmgmt-port=HOST[:GUEST]
+                        Dashboard (system management) forwarding (default: ${DEFAULT_SYSMGMT_PORT})
+  --webterminal-port=HOST[:GUEST]
+                        Web terminal forwarding (default: ${DEFAULT_WEBTERMINAL_PORT})
+                        A bare HOST keeps the guest port.
   --appdir=DIR          Directory containing APP partition content (for port forwarding)
   --serial              Enable serial console output (Linux host only)
   --usb[=VERSION]       Enable USB passthrough with device filters
@@ -173,6 +180,18 @@ EOF
     exit 0
 }
 
+# parse_port_arg VALUE HOSTVAR GUESTVAR: VALUE is HOST or HOST:GUEST; a bare HOST keeps the guest port.
+parse_port_arg() {
+    local value="$1"
+    case "$value" in
+        *:*) printf -v "$2" '%s' "${value%%:*}"; printf -v "$3" '%s' "${value##*:}" ;;
+        *)   printf -v "$2" '%s' "$value" ;;
+    esac
+    case "${!2}:${!3}" in
+        *[!0-9:]*|:*|*:) error "Bad port value: $value (HOST or HOST:GUEST, numbers)" ;;
+    esac
+}
+
 parse_arguments() {
     for arg in "$@"; do
         case "$arg" in
@@ -181,11 +200,9 @@ parse_arguments() {
             --output=*)     OUTPUT_DIR="${arg#*=}" ;;
             --memory=*)     VM_MEMORY="${arg#*=}" ;;
             --cpus=*)       VM_CPUS="${arg#*=}" ;;
-            --ssh-port=*)
-                SSH_HOST_PORT="${arg#*=}"
-                SSH_HOST_PORT="${SSH_HOST_PORT%%:*}"
-                SSH_GUEST_PORT="${arg#*:}"
-                ;;
+            --ssh-port=*)          parse_port_arg "${arg#*=}" SSH_HOST_PORT SSH_GUEST_PORT ;;
+            --sysmgmt-port=*)      parse_port_arg "${arg#*=}" SYSMGMT_HOST_PORT SYSMGMT_GUEST_PORT ;;
+            --webterminal-port=*)  parse_port_arg "${arg#*=}" WEBTERMINAL_HOST_PORT WEBTERMINAL_GUEST_PORT ;;
             --appdir=*)     APP_MANIFEST="${arg#*=}/manifest.json" ;;
             --serial)       ENABLE_SERIAL=true ;;
             --usb)          USB_MODE="1" ;;  # Default to USB 1.1 (no Extension Pack needed)

@@ -6,7 +6,7 @@
 // set", partkb-0.7.0), and the empty Cost page. Needs no Azure key and never stores a real one (a dummy endpoint /
 // key, removed again).
 //
-//   node tests/appliance/converter.mjs --host=127.0.0.1 --port=8000 --password=… --pdf=<public datasheet.pdf>
+//   node tests/appliance/converter.mjs --host=127.0.0.1 --port=8010 --password=… --pdf=<public datasheet.pdf>
 //        [--package=<layout-2 library package>] [--factory-reset=1] [--out=result.txt]
 //   node tests/appliance/converter.mjs … --bundle=<data bundle .tar>   (only the restore rehearsal, twice; the verify must
 //        report no warnings, i.e. content-hash checked, unless --allow-warnings=1)

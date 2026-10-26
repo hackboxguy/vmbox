@@ -257,8 +257,9 @@ image version and data partition, and both are reached through the vmbox dashboa
 | app | submodule `apps/text-to-block` at the tag in `packages-sbd-configurator.txt` | submodule `apps/partkb` at the tag in `packages-partkb-converter.txt`, with the text-to-block schema / tools / library of `apps/text-to-block` (`-DTEXT_TO_BLOCK_DIR`, staged into the build chroot) |
 | runtime packages | `packages-sbd-configurator-system.txt` (python3, Pillow, fonts, resvg) | `packages-partkb-converter-system.txt` (python3, PyMuPDF 1.28.2 wheel pinned by SHA-256, httpx, PyYAML, jsonschema, Pillow, git, sqlite) |
 | hostname / dashboard cookie | `sbd-configurator` / `session-sbd-configurator-<version>` | `partkb-converter` / `session-partkb-converter-<version>` |
+| host ports (NAT, in the OVA) | dashboard 8000, app 8008, web terminal 8003, SSH 2222 (the stock ports) | dashboard **8010**, web terminal **8013**, SSH **2223** (guest 8000 / 8003 / 22) |
 | app port | 8008 (forwarded directly too, for debugging) | 8009 on 127.0.0.1 only: through the dashboard proxy, never forwarded |
-| user path | `http://<host>:8000/app/sbd-configurator/` | `http://<host>:8000/app/partkb-converter/` |
+| user path | `http://<host>:8000/app/sbd-configurator/` | `http://<host>:8010/app/partkb-converter/` |
 | data partition | 1 GB: `/data/app-data/sbd-configurator/` (profiles, parts, price sets, pictures, photos, `library-overlay/`) | 16 GB dynamically allocated VDI: `/data/app-data/partkb-converter/` (store, data repository, working library, packages, jobs) and `/data/app-config/partkb-converter/` (Azure key 0600, settings) |
 | moving to a new release | "My data" pack (download on the old VM, load on the new one) | data bundle on the Data tab (download, restore in 64 MB chunks) |
 
@@ -284,8 +285,29 @@ image version and data partition, and both are reached through the vmbox dashboa
   and holds the raw image, the OVA **and the registered VM's disk**. tmpfs (`/tmp`) is refused unless
   `--allow-tmpfs`, because a host reboot would delete the disk of a registered VM (as happened on 2026-10-25). Keep
   released OVAs and running VMs on a persistent disk: `VBoxManage import <ova> --vsys 0 --basefolder <dir>`.
-- **Test boot next to a running VM:** move every NAT forward of the test VM first (configurator 8000 / 8008 / 8003 /
-  2222, converter 8000 / 8003 / 2222), and power it off afterwards (`VBoxManage controlvm <vm> poweroff`).
+- **Host ports:** the converter has its own (8010 / 8013 / 2223, from `build-partkb-converter-ova.sh`, vmbox
+  2026-10-26), so one configurator and one converter import and run side by side with no VirtualBox settings change.
+  Converter images before that (0.1.0 … 0.3.0) still use 8000 / 8003 / 2222.
+- **Test boot next to a running VM of the same kind** (or an old converter image): move every NAT forward of the test
+  VM first (configurator 8000 / 8008 / 8003 / 2222, converter 8010 / 8013 / 2223), and power it off afterwards
+  (`VBoxManage controlvm <vm> poweroff`).
+
+### Windows PC: import and first start
+
+1. Install VirtualBox 7.x for Windows. Hyper-V / WHPX being on (WSL 2, Windows Sandbox, memory integrity) is fine:
+   VirtualBox then runs on the Windows hypervisor (a green turtle icon in the VM window), which works but is slower.
+2. Check each OVA's SHA-256 against its `.ova.sha256` file: `certutil -hashfile <file>.ova SHA256` (cmd) or
+   `Get-FileHash <file>.ova -Algorithm SHA256` (PowerShell). Case does not matter.
+3. File → Import Appliance → choose the OVA → keep the defaults. The NAT port forwards come with the OVA; import
+   both, no settings change needed.
+4. Start both VMs (either order). Configurator dashboard: `http://localhost:8000` (app also direct on
+   `http://localhost:8008`); converter dashboard: `http://localhost:8010`. Applications → the app.
+5. Log in with the default credentials (below) and change the password at once (dashboard → Actions → Change
+   Password), on each VM. A factory reset puts the default back.
+6. If Windows Firewall asks for VirtualBox, "private networks" is enough for the forwards on `localhost`.
+
+The OVAs carry no serial port. If an older or a custom OVA does not start, see "VM won't start after OVA import on
+Windows" under Troubleshooting.
 
 ### Appliance acceptance tests
 
@@ -295,10 +317,10 @@ Pass the forwarded dashboard port and the dashboard password:
 
 ```bash
 APPLIANCE_PASSWORD=… make appliance-test APP=configurator HOST=127.0.0.1 PORT=8000 [ARGS="--package=<zip> --part=<id>"]
-APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8100 PDF=../data-sheets-collection/tps3704.pdf \
+APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8010 PDF=../data-sheets-collection/tps3704.pdf \
     ARGS="--package=<layout-2 package of the repo> [--factory-reset=1]"
-APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8100 ARGS="--bundle=<data bundle .tar>"
-APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 --converter-port=8100 [--second-app=sbd-configurator]"
+APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8010 ARGS="--bundle=<data bundle .tar>"
+APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 --converter-port=8010 [--second-app=sbd-configurator]"
 ```
 
 - `configurator`:
@@ -328,9 +350,9 @@ APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 
 
 | Service | URL/Command |
 |---------|-------------|
-| SSH | `ssh -p 2222 admin@localhost` |
-| System Management | http://localhost:8000 |
-| Web Terminal | http://localhost:8003 |
+| SSH | `ssh -p 2222 admin@localhost` (converter: 2223) |
+| System Management | http://localhost:8000 (converter: 8010) |
+| Web Terminal | http://localhost:8003 (converter: 8013) |
 | Custom Apps | Ports defined in packages.txt |
 
 ### Default Credentials
@@ -385,6 +407,9 @@ sudo ./scripts/03-create-image.sh \
     [--memory=1024] \       # RAM in MB (default: 1024)
     [--cpus=2] \            # CPU count (default: 2)
     [--appdir=/path] \      # APP directory for port forwarding
+    [--ssh-port=2223] \     # SSH host port, HOST[:GUEST] (default 2222:22)
+    [--sysmgmt-port=8010] \ # Dashboard host port, HOST[:GUEST] (default 8000:8000)
+    [--webterminal-port=8013] \ # Web terminal host port, HOST[:GUEST] (default 8003:8003)
     [--usb] \               # Enable USB 2.0 passthrough
     [--usb=1|2|3] \         # USB version (1=OHCI, 2=EHCI, 3=xHCI)
     [--serial] \            # Enable serial console (Linux only)

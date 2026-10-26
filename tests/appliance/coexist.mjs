@@ -2,7 +2,7 @@
 // neither logs the other out (cookies are per host, not per port: the names session-sbd-configurator and
 // session-partkb-converter keep them apart).
 //
-//   node tests/appliance/coexist.mjs --host=127.0.0.1 --config-port=8000 --converter-port=8100 --password=…
+//   node tests/appliance/coexist.mjs --host=127.0.0.1 --config-port=8000 --converter-port=8010 --password=…
 import { args, reporter, Browser, browserLogin, isSessionCookie } from "./lib.mjs";
 
 const a = args();

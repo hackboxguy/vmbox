@@ -11,6 +11,8 @@
 //
 //   node tests/appliance/hdr-processor.mjs --host=127.0.0.1 --port=38000 --password=… --oled-profile=P.json
 //        [--master-upload=peru-hdr10+.mp4] [--queue=1] [--skip-render=1] [--report-out=r.json] [--out=result.txt]
+//        [--mode=hdr10plus|hdr10-static|sdr-today|sdr-managed|pair] (web app 0.2: the Mode select; default hdr10plus)
+//        [--timeout-min=180]
 import { resolve } from "node:path";
 import { readFileSync, writeFileSync, statSync } from "node:fs";
 import { args, reporter, Http, Browser, browserLogin, isSessionCookie } from "./lib.mjs";
@@ -58,7 +60,13 @@ try {
         r.check("card: type OLED, 2560×1440, peaks, blacks, ABL table present",
                 /OLED/.test(card) && /2560×1440/.test(card) && /peak 10 %/.test(card) && /black full screen/.test(card) && /ABL table\s+present/.test(card), card);
         r.check("display type read-only once the profile is loaded", await p.eval("document.querySelector('#dtype').disabled"));
-        await p.eval("document.querySelector('#player').value = 'pi'; document.querySelector('#length').value = 'excerpt'; document.querySelector('#length').dispatchEvent(new Event('change')); true");
+        const modes = await p.eval("document.querySelector('#mode') ? [...document.querySelector('#mode').options].map(o => o.value) : []");
+        r.info(`modes offered: ${modes.join(", ") || "(no Mode select: web app 0.1)"}`);
+        if (modes.length) r.check("SDR modes offered (libplacebo renders here)", ["sdr-today", "sdr-managed", "pair"].every(m => modes.includes(m)), modes);
+        const mode = a.mode || "hdr10plus";
+        await p.eval(`document.querySelector('#player').value = 'pi'; document.querySelector('#length').value = 'excerpt'; ` +
+                     `if (document.querySelector('#mode')) document.querySelector('#mode').value = '${mode}'; ` +
+                     `document.querySelector('#length').dispatchEvent(new Event('change')); true`);
         const cmd = await p.wait("/--to=2:00/.test(document.querySelector('#command').innerText) && document.querySelector('#command').innerText", 20000, "command line");
         r.check("command line shown: h264, 1920x1080, crf 18, --to=2:00", /--codec=h264/.test(cmd) && /--display-res=1920x1080/.test(cmd) && /--crf=18/.test(cmd), cmd);
         r.info(`command: ${cmd.split("\n")[0]}`);
@@ -72,22 +80,27 @@ try {
                 const m = s.match(/^(queued|probe|luts|render|verify|starting|done|failed|cancelled)/);
                 if (m) stages.add(m[1]);
                 if (/^(done|failed|cancelled)/.test(s)) { res = s; break; }
-                if (Date.now() - t0 > 3600e3) { res = "timeout"; break; }
+                if (Date.now() - t0 > (Number(a["timeout-min"]) || 180) * 60e3) { res = "timeout"; break; }
                 await new Promise(z => setTimeout(z, 1000));
             }
             r.info(`job ${res} after ${((Date.now() - t0) / 60000).toFixed(1)} min; stages seen: ${[...stages].join(" -> ")}`);
             r.check("progress went through luts, render and verify", ["luts", "render", "verify"].every(x => stages.has(x)), [...stages]);
             r.check("job done", /^done/.test(res), res);
             const links = await p.eval("[...document.querySelectorAll('#job-result a')].map(e => [e.innerText, e.getAttribute('href')])");
-            const clip = links.find(l => /clip/i.test(l[0])), rep = links.find(l => /report/i.test(l[0]));
-            if (r.check("Download clip / Download report buttons", clip && rep, links)) {
+            const clips = links.filter(l => /clip/i.test(l[0])), reps = links.filter(l => /report/i.test(l[0]));
+            r.check(`${mode === "pair" ? 2 : 1} Download clip / report pair(s)`, clips.length === (mode === "pair" ? 2 : 1) && reps.length === clips.length, links);
+            for (const [clip, rep] of clips.map((c, i) => [c, reps[i]])) {
                 const c = await http.req("GET", clip[1]);
                 r.check(`clip downloads through the proxy (${(c.buf.length / 1e6).toFixed(1)} MB, ${c.headers.get("content-disposition")})`,
                         c.status === 200 && c.buf.length > 1e6 && c.buf.subarray(4, 8).toString() === "ftyp", c.status);
                 const rj = await http.req("GET", rep[1]);
-                r.check("report downloads (ok, LUT hashes)", rj.status === 200 && rj.json?.ok && rj.json?.luts?.length > 0, rj.status);
-                if (a["report-out"] && rj.json) writeFileSync(a["report-out"], JSON.stringify(rj.json, null, 1));
-                r.info(`report: ${rj.json?.scenes?.length} segments, ${rj.json?.luts?.length} LUTs, timing ${JSON.stringify(rj.json?.timing_s)}`);
+                r.check(`report downloads (${rj.json?.mode}: ok${rj.json?.mode === "sdr-today" ? "" : ", LUT hashes"})`,
+                        rj.status === 200 && rj.json?.ok && (rj.json?.mode === "sdr-today" || rj.json?.luts?.length > 0), rj.status);
+                if (a["report-out"] && rj.json)    // a pair: one file per mode
+                    writeFileSync(clips.length > 1 ? a["report-out"].replace(/(\.json)?$/, `-${rj.json.mode}$1`) : a["report-out"],
+                                  JSON.stringify(rj.json, null, 1));
+                r.info(`report ${rj.json?.mode}: ${rj.json?.scenes?.length} segments, ${rj.json?.luts?.length} LUTs, timing ${JSON.stringify(rj.json?.timing_s)}` +
+                       (rj.json?.checks?.set ? `, set: ${JSON.stringify(rj.json.checks.set)}` : ""));
             }
         }
     }

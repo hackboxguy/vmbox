@@ -2,6 +2,11 @@
 # Runtime of the HDR processor appliance (sdr-hdr-shootout-demo web-app, prompt v4 §5): Python with numpy and Flask,
 # ffmpeg (zscale = libzimg, haldclut, libx264, libx265: the generator exits 3 without them) and hdr10plus_tool.
 #
+# The SDR modes (sdr-today, sdr-managed: the generator's libplacebo chain) need a Vulkan device; the VM has no GPU,
+# so Mesa's lavapipe (mesa-vulkan-swrast) renders on the CPU. Alpine 3.21's ffmpeg 6.1 libplacebo filter finds "no
+# suitable device" on its own and works on ffmpeg's Vulkan device (-init_hw_device vulkan; the generator's
+# libplacebo_args() picks that). Measured 2026-10-26 in alpine:3.21 with 8 CPUs: ~1.8 fps at 1920x1080.
+#
 # hdr10plus_tool is not packaged in Alpine: the upstream release's x86_64-unknown-linux-musl build, pinned by version
 # and SHA-256, installed to /usr/local/bin.
 # Verified 2026-10-26 in alpine:3.21: ffmpeg 6.1.2 (libzimg 3), numpy 2.1.3, Flask 3.0.3, hdr10plus_tool 1.7.2; the
@@ -16,7 +21,8 @@ apk add --no-cache \
     python3 \
     py3-numpy \
     py3-flask \
-    ffmpeg
+    ffmpeg \
+    mesa-vulkan-swrast
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -39,6 +45,9 @@ for e in libx264 libx265; do
 done
 ffv="$(ffmpeg -version | head -1 | sed -n 's/^ffmpeg version n\{0,1\}\([0-9]*\).*/\1/p')"
 [ "${ffv:-0}" -ge 6 ] || fail "ffmpeg ${ffv} < 6 (zscale options as the generator uses them)"
+echo "$filters" | grep -qE "^ [^ ]+ libplacebo " || fail "Alpine's ffmpeg has no libplacebo filter (the SDR modes)"
+ffmpeg -v error -init_hw_device vulkan=vk -filter_hw_device vk -f lavfi -i testsrc2=s=64x64:d=0.1 \
+    -vf libplacebo=format=yuv420p -frames:v 1 -f null - || fail "libplacebo does not render on lavapipe"
 /usr/bin/hdr10plus_tool --version | grep -q "hdr10plus_tool ${HDR10PLUS_TOOL_VERSION}" || fail "hdr10plus_tool does not run"
 python3 - <<'PY'
 import flask, numpy

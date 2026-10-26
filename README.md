@@ -255,7 +255,7 @@ and data partition, and all are reached through the vmbox dashboard.
 |---|---|---|---|
 | build | `build-sbd-configurator-ova.sh --version=<x.y.z>` | `build-partkb-converter-ova.sh --version=<x.y.z>` | `build-hdr-processor-ova.sh --version=<x.y.z> [--master=<HDR10+ file>]` |
 | app | submodule `apps/text-to-block` at the tag in `packages-sbd-configurator.txt` | submodule `apps/partkb` at the tag in `packages-partkb-converter.txt`, with the text-to-block schema / tools / library of `apps/text-to-block` (`-DTEXT_TO_BLOCK_DIR`, staged into the build chroot) | submodule `apps/sdr-hdr-shootout-demo` (its `web-app/`, with the generator and profile creator from its `tools/`) at the tag in `packages-hdr-processor.txt` (`webapp-x.y.z`) |
-| runtime packages | `packages-sbd-configurator-system.txt` (python3, Pillow, fonts, resvg) | `packages-partkb-converter-system.txt` (python3, PyMuPDF 1.28.2 wheel pinned by SHA-256, httpx, PyYAML, jsonschema, Pillow, git, sqlite) | `packages-hdr-processor-system.txt`: python3, numpy, Flask, ffmpeg 6.1 (zscale, haldclut, libx264, libx265 asserted at build time), hdr10plus_tool 1.7.2 (upstream musl build, SHA-256 pinned, `/usr/local/bin`) |
+| runtime packages | `packages-sbd-configurator-system.txt` (python3, Pillow, fonts, resvg) | `packages-partkb-converter-system.txt` (python3, PyMuPDF 1.28.2 wheel pinned by SHA-256, httpx, PyYAML, jsonschema, Pillow, git, sqlite) | `packages-hdr-processor-system.txt`: python3, numpy, Flask, ffmpeg 6.1 (zscale, haldclut, libx264, libx265 and libplacebo asserted at build time), Mesa lavapipe (`mesa-vulkan-swrast`: libplacebo's Vulkan device on the CPU, for the SDR modes; a frame is rendered at build time), hdr10plus_tool 1.7.2 (upstream musl build, SHA-256 pinned, `/usr/local/bin`) |
 | hostname / dashboard cookie | `sbd-configurator` / `session-sbd-configurator-<version>` | `partkb-converter` / `session-partkb-converter-<version>` | `hdr-processor` / `session-hdr-processor-<version>` |
 | host ports (NAT, in the OVA) | dashboard 8000, app 8008, web terminal 8003, SSH 2222 (the stock ports) | dashboard **8010**, web terminal **8013**, SSH **2223** (guest 8000 / 8003 / 22) | dashboard **8020**, web terminal **8023**, SSH **2224** |
 | app port | 8008 (forwarded directly too, for debugging) | 8009 on 127.0.0.1 only: through the dashboard proxy, never forwarded | 8011 on 127.0.0.1 only (proxy) |
@@ -279,9 +279,12 @@ and data partition, and all are reached through the vmbox dashboard.
   VM. `README-windows.txt` has the steps; the old VM must be stopped first because the host ports are the same.
 - **Cookies:** the dashboard's session cookie is `session-<hostname>-<image version>`. Two appliances, or two
   releases of one appliance (the old and the new VM during a move), reached on one host keep separate logins.
-- **HDR processor** (8 vCPU, 8 GB): a factory reset clears `/data/app-data` and with it the seeded master; upload it
-  again on the Masters tab. Acceptance: `apps/sdr-hdr-shootout-demo/web-app/docs/acceptance-0.1.md`,
-  `make appliance-test APP=hdr-processor HOST=127.0.0.1 PORT=38000 ARGS="--oled-profile=<profile.json> [--master-upload=<file>] [--queue=1]"`.
+- **HDR processor** (8 vCPU, 8 GB, OS partition 1.4 GB since 0.2 for lavapipe's LLVM): a factory reset clears
+  `/data/app-data` and with it the seeded master; upload it again on the Masters tab. 0.2 adds the SDR modes
+  (`sdr-today`, `sdr-managed`, the shootout pair): libplacebo on lavapipe runs ~1.8 fps at 1080p, so an SDR
+  excerpt takes over an hour. Acceptance: `apps/sdr-hdr-shootout-demo/web-app/docs/acceptance-0.1.md`,
+  `make appliance-test APP=hdr-processor HOST=127.0.0.1 PORT=38000 ARGS="--oled-profile=<profile.json> [--master-upload=<file>] [--queue=1] [--mode=pair] [--skip-render=1]"`
+  (`APPLIANCE_PASSWORD=` the dashboard login).
 - **Proxy limits** come from each app's manifest: `"proxy": {"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`;
   the first matching prefix wins. The default is 1 MB / 30 s, the ceiling 4 GB / 600 s.
   - Configurator: photos and user-data 512 MB / 300 s, library-package 50 MB / 120 s.

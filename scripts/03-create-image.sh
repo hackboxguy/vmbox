@@ -30,6 +30,7 @@ DATA_PART_SIZE="${DEFAULT_DATA_PART_SIZE}"
 APP_PART_SIZE="${DEFAULT_APP_PART_SIZE}"
 BOOT_PART_SIZE="${DEFAULT_BOOT_SIZE}"
 APP_DIR=""  # Optional: directory containing app content for APP partition
+DATA_SEED=""  # Optional: tree copied into the DATA partition root (--dataseed)
 DEV_MODE=false
 DEBUG_MODE=false
 
@@ -62,6 +63,9 @@ Optional Arguments:
   --datapart=SIZE       Data partition size (default: ${DEFAULT_DATA_PART_SIZE})
   --apppart=SIZE        App partition size (default: ${DEFAULT_APP_PART_SIZE}, 0=disabled)
   --appdir=DIR          Directory containing app content (default: rootfs/app)
+  --dataseed=DIR        Copy this tree into the DATA partition root after mkfs (owner root), e.g. a master clip
+                        under app-data/<app>/; app-manager only creates missing dirs, so it survives the first
+                        boot (a factory reset clears app-data and app-config, and with them the seed)
   --bootpart=SIZE       Boot partition size (default: ${DEFAULT_BOOT_SIZE})
   --dev-mode            Create writable ext4 rootfs instead of SquashFS
   --debug               Keep mounted on error for debugging
@@ -83,6 +87,7 @@ parse_arguments() {
             --datapart=*)   DATA_PART_SIZE="${arg#*=}" ;;
             --apppart=*)    APP_PART_SIZE="${arg#*=}" ;;
             --appdir=*)     APP_DIR="${arg#*=}" ;;
+            --dataseed=*)   DATA_SEED="${arg#*=}" ;;
             --bootpart=*)   BOOT_PART_SIZE="${arg#*=}" ;;
             --dev-mode)     DEV_MODE=true ;;
             --debug)        DEBUG_MODE=true ;;
@@ -98,6 +103,10 @@ parse_arguments() {
     OUTPUT_DIR="$(to_absolute_path "$OUTPUT_DIR")"
 
     validate_dir "$ROOTFS_DIR" "Rootfs directory"
+    if [ -n "$DATA_SEED" ]; then
+        DATA_SEED="$(to_absolute_path "$DATA_SEED")"
+        validate_dir "$DATA_SEED" "Data seed directory"
+    fi
 
     # Parse partition sizes
     BOOT_PART_SIZE_MB=$(parse_size_mb "$BOOT_PART_SIZE")
@@ -645,6 +654,15 @@ initialize_data_partition() {
 
     # Set ownership for user home directory
     chown "${DEFAULT_USER_UID}:${DEFAULT_USER_GID}" "${data_mount}/home/${DEFAULT_USERNAME}"
+
+    # Seed data (--dataseed): copied as root:root; symlinks in the seed are followed (the build script links the
+    # master clip rather than copying it twice)
+    if [ -n "$DATA_SEED" ]; then
+        log "Seeding data partition from ${DATA_SEED}..."
+        cp -rL --no-preserve=ownership "${DATA_SEED}"/. "${data_mount}/"
+        chown -R root:root "${data_mount}/app-data" "${data_mount}/app-config" 2>/dev/null || true
+        info "Data seed: $(du -shL "${DATA_SEED}" | cut -f1) copied"
+    fi
 
     # Create a marker file
     echo "Data partition initialized $(date -u +%Y-%m-%d_%H:%M:%S_UTC)" > "${data_mount}/.initialized"

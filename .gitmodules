@@ -20,3 +20,6 @@
 [submodule "apps/partkb"]
 	path = apps/partkb
 	url = https://github.com/hackboxguy/partkb.git
+[submodule "apps/sdr-hdr-shootout-demo"]
+	path = apps/sdr-hdr-shootout-demo
+	url = https://github.com/hackboxguy/sdr-hdr-shootout-demo.git

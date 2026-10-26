@@ -6,7 +6,7 @@
 #   make lint-python   - Run Python syntax check on core files
 #   make smoke-test    - Validate package files and config
 #   make check         - Run lint + smoke-test
-#   make appliance-test APP=configurator|converter|coexist HOST=… PORT=… - acceptance tests against a booted VM
+#   make appliance-test APP=configurator|converter|hdr-processor|coexist HOST=… PORT=… - acceptance tests against a booted VM
 
 SHELL := /bin/bash
 
@@ -38,7 +38,7 @@ PYTHON_FILES := \
 help:
 	@echo "Available targets:"
 	@echo "  make lint          - Run all linters (shellcheck + python)"
-	@echo "  make appliance-test APP=configurator|converter|coexist HOST=127.0.0.1 PORT=8000 [PDF=x.pdf] [ARGS=...]"
+	@echo "  make appliance-test APP=configurator|converter|hdr-processor|coexist HOST=127.0.0.1 PORT=8000 [PDF=x.pdf] [ARGS=...]"
 	@echo "                     - acceptance tests against a booted VM (password in APPLIANCE_PASSWORD; not in check)"
 	@echo "  make lint-shell    - Run shellcheck on core build scripts"
 	@echo "  make lint-python   - Run Python syntax check"

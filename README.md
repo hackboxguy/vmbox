@@ -246,22 +246,22 @@ Run it as a normal user:
 It adds an exact `0403:a9a0` USB filter for the EEHB Bluebox. Use `--usb=2` or
 `--usb=3` only when the host has the matching VirtualBox Extension Pack.
 
-## The two display appliances
+## The display appliances
 
-Two VirtualBox appliances of the display system-design toolchain are built from this repo. Each has its own OVA,
-image version and data partition, and both are reached through the vmbox dashboard.
+Three VirtualBox appliances of the display toolchain are built from this repo. Each has its own OVA, image version
+and data partition, and all are reached through the vmbox dashboard.
 
-| | SBD configurator | partkb converter |
-|---|---|---|
-| build | `build-sbd-configurator-ova.sh --version=<x.y.z>` | `build-partkb-converter-ova.sh --version=<x.y.z>` |
-| app | submodule `apps/text-to-block` at the tag in `packages-sbd-configurator.txt` | submodule `apps/partkb` at the tag in `packages-partkb-converter.txt`, with the text-to-block schema / tools / library of `apps/text-to-block` (`-DTEXT_TO_BLOCK_DIR`, staged into the build chroot) |
-| runtime packages | `packages-sbd-configurator-system.txt` (python3, Pillow, fonts, resvg) | `packages-partkb-converter-system.txt` (python3, PyMuPDF 1.28.2 wheel pinned by SHA-256, httpx, PyYAML, jsonschema, Pillow, git, sqlite) |
-| hostname / dashboard cookie | `sbd-configurator` / `session-sbd-configurator-<version>` | `partkb-converter` / `session-partkb-converter-<version>` |
-| host ports (NAT, in the OVA) | dashboard 8000, app 8008, web terminal 8003, SSH 2222 (the stock ports) | dashboard **8010**, web terminal **8013**, SSH **2223** (guest 8000 / 8003 / 22) |
-| app port | 8008 (forwarded directly too, for debugging) | 8009 on 127.0.0.1 only: through the dashboard proxy, never forwarded |
-| user path | `http://<host>:8000/app/sbd-configurator/` | `http://<host>:8010/app/partkb-converter/` |
-| data partition | 1 GB: `/data/app-data/sbd-configurator/` (profiles, parts, price sets, pictures, photos, `library-overlay/`) | 16 GB dynamically allocated VDI: `/data/app-data/partkb-converter/` (store, data repository, working library, packages, jobs) and `/data/app-config/partkb-converter/` (Azure key 0600, settings) |
-| moving to a new release | "My data" pack (download on the old VM, load on the new one) | data bundle on the Data tab (download, restore in 64 MB chunks) |
+| | SBD configurator | partkb converter | HDR processor |
+|---|---|---|---|
+| build | `build-sbd-configurator-ova.sh --version=<x.y.z>` | `build-partkb-converter-ova.sh --version=<x.y.z>` | `build-hdr-processor-ova.sh --version=<x.y.z> [--master=<HDR10+ file>]` |
+| app | submodule `apps/text-to-block` at the tag in `packages-sbd-configurator.txt` | submodule `apps/partkb` at the tag in `packages-partkb-converter.txt`, with the text-to-block schema / tools / library of `apps/text-to-block` (`-DTEXT_TO_BLOCK_DIR`, staged into the build chroot) | submodule `apps/sdr-hdr-shootout-demo` (its `web-app/`, with the generator and profile creator from its `tools/`) at the tag in `packages-hdr-processor.txt` (`webapp-x.y.z`) |
+| runtime packages | `packages-sbd-configurator-system.txt` (python3, Pillow, fonts, resvg) | `packages-partkb-converter-system.txt` (python3, PyMuPDF 1.28.2 wheel pinned by SHA-256, httpx, PyYAML, jsonschema, Pillow, git, sqlite) | `packages-hdr-processor-system.txt`: python3, numpy, Flask, ffmpeg 6.1 (zscale, haldclut, libx264, libx265 asserted at build time), hdr10plus_tool 1.7.2 (upstream musl build, SHA-256 pinned, `/usr/local/bin`) |
+| hostname / dashboard cookie | `sbd-configurator` / `session-sbd-configurator-<version>` | `partkb-converter` / `session-partkb-converter-<version>` | `hdr-processor` / `session-hdr-processor-<version>` |
+| host ports (NAT, in the OVA) | dashboard 8000, app 8008, web terminal 8003, SSH 2222 (the stock ports) | dashboard **8010**, web terminal **8013**, SSH **2223** (guest 8000 / 8003 / 22) | dashboard **8020**, web terminal **8023**, SSH **2224** |
+| app port | 8008 (forwarded directly too, for debugging) | 8009 on 127.0.0.1 only: through the dashboard proxy, never forwarded | 8011 on 127.0.0.1 only (proxy) |
+| user path | `http://<host>:8000/app/sbd-configurator/` | `http://<host>:8010/app/partkb-converter/` | `http://<host>:8020/app/hdr-processor/` |
+| data partition | 1 GB: `/data/app-data/sbd-configurator/` (profiles, parts, price sets, pictures, photos, `library-overlay/`) | 16 GB dynamically allocated VDI: `/data/app-data/partkb-converter/` (store, data repository, working library, packages, jobs) and `/data/app-config/partkb-converter/` (Azure key 0600, settings) | 32 GB dynamically allocated VDI: `/data/app-data/hdr-processor/` (masters, jobs, uploads); the master clip seeded at build time (`03-create-image.sh --dataseed`) |
+| moving to a new release | "My data" pack (download on the old VM, load on the new one) | data bundle on the Data tab (download, restore in 64 MB chunks) | download the clips you need; masters are uploaded again (Masters tab) or seeded by the build |
 
 - **Current images (2026-10-26):** configurator **`vmbox-sbd-configurator-v0.16.3`** (configurator-0.16.3) and
   converter **`vmbox-partkb-converter-v0.4.1`** (partkb-0.8.1: the Parts tab; a restore takes only a bundle whose
@@ -279,10 +279,14 @@ image version and data partition, and both are reached through the vmbox dashboa
   VM. `README-windows.txt` has the steps; the old VM must be stopped first because the host ports are the same.
 - **Cookies:** the dashboard's session cookie is `session-<hostname>-<image version>`. Two appliances, or two
   releases of one appliance (the old and the new VM during a move), reached on one host keep separate logins.
+- **HDR processor** (8 vCPU, 8 GB): a factory reset clears `/data/app-data` and with it the seeded master; upload it
+  again on the Masters tab. Acceptance: `apps/sdr-hdr-shootout-demo/web-app/docs/acceptance-0.1.md`,
+  `make appliance-test APP=hdr-processor HOST=127.0.0.1 PORT=38000 ARGS="--oled-profile=<profile.json> [--master-upload=<file>] [--queue=1]"`.
 - **Proxy limits** come from each app's manifest: `"proxy": {"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`;
   the first matching prefix wins. The default is 1 MB / 30 s, the ceiling 4 GB / 600 s.
   - Configurator: photos and user-data 512 MB / 300 s, library-package 50 MB / 120 s.
   - Converter: documents 200 MB / 300 s, library-package 50 MB / 120 s, bundle chunks 128 MB / 600 s.
+  - HDR processor: master upload 4 GB / 600 s (one streamed POST), profile 10 MB / 60 s.
 
   An app API path (`/app/<name>/api/...`) answers 401 JSON with a missing or expired login; pages redirect to
   `/login`.
@@ -305,7 +309,8 @@ image version and data partition, and both are reached through the vmbox dashboa
 - **Test boot:** acceptance tests run against a fresh test VM, never against the production VMs.
   1. Build the test VM, or import it with its own `--vmname`.
   2. Before the first start, move every NAT forward. The configurator's 8000 / 8008 / 8003 / 2222 become e.g.
-     18000 / 18008 / 18003 / 12222. The converter's 8010 / 8013 / 2223 become e.g. 28000 / 28003 / 22222.
+     18000 / 18008 / 18003 / 12222. The converter's 8010 / 8013 / 2223 become e.g. 28000 / 28003 / 22222. The HDR
+     processor's 8020 / 8023 / 2224 become e.g. 38000 / 38003 / 32222.
   3. Shut the VM down afterwards, and unregister it with `--delete` when the round is over.
 - **Stopping an appliance** (images from vmbox 2026-10-26 on): `VBoxManage controlvm <vm> acpipowerbutton`, VirtualBox's
   "ACPI Shutdown", or the dashboard's **Shut down** (`POST /api/shutdown`). All run the OpenRC shutdown: apps stopped
@@ -435,7 +440,9 @@ sudo ./scripts/03-create-image.sh \
     --ospart=500M \             # Root partition size
     --datapart=200M \           # Data partition size
     [--apppart=200M] \          # APP partition size (optional)
-    [--appdir=/path/to/app]     # APP content directory (required if apppart set)
+    [--appdir=/path/to/app] \   # APP content directory (required if apppart set)
+    [--dataseed=/path/to/tree]  # copied into the DATA partition root after mkfs (root:root, symlinks followed),
+                                # e.g. app-data/<app>/...; app-manager never wipes it, a factory reset does
 ```
 
 ### 04-convert-to-vbox.sh

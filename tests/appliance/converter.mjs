@@ -7,7 +7,7 @@
 // key, removed again).
 //
 //   node tests/appliance/converter.mjs --host=127.0.0.1 --port=8010 --password=… --pdf=<public datasheet.pdf>
-//        [--package=<layout-2 library package>] [--factory-reset=1] [--out=result.txt]
+//        [--package=<layout-2 library package>] [--factory-reset=1] [--parts=0 before partkb-0.8.0] [--out=result.txt]
 //   node tests/appliance/converter.mjs … --bundle=<data bundle .tar>   (only the restore rehearsal, twice; the verify must
 //        report no warnings, i.e. content-hash checked, unless --allow-warnings=1)
 //   (or: make appliance-test APP=converter HOST=… PORT=… APPLIANCE_PASSWORD=… PDF=…)
@@ -38,6 +38,29 @@ r.check('header state: "Azure: not set"', st.azure?.state === "not-set", st.azur
 r.check("header names the installed library version", /configurator-/.test(st.library?.version || ""), st.library);
 const docs0 = (await http.req("GET", `${APP}/api/documents`)).json?.documents || [];
 r.info(`${docs0.length} document(s) on the VM at start`);
+
+// the Parts tab's API (partkb-0.8.0 and later; --parts=0 for older images): one row per working-library record,
+// the CSV with a header line, a record by id
+if (a.parts !== "0" && !a.bundle) {
+    const pj = await http.req("GET", `${APP}/api/parts`);
+    const pd = pj.json || {};
+    r.check(`Parts: api/parts count ${pd.count} = the header's parts count ${st.library?.parts}, one row each`,
+            pj.status === 200 && pd.count === st.library?.parts && (pd.parts || []).length === pd.count, [pj.status, pd.count, st.library]);
+    const csv = await http.req("GET", `${APP}/api/parts?format=csv`);
+    const rows = parseCsv(csv.buf.toString("utf8"));
+    r.check(`Parts: CSV (${csv.headers.get("content-type")}) has count + 1 lines (${rows.length})`,
+            csv.status === 200 && /text\/csv/.test(csv.headers.get("content-type") || "") && rows.length === pd.count + 1, [csv.status, rows.length]);
+    const id = (pd.parts || [])[0]?.id;
+    const one = await http.req("GET", `${APP}/api/parts/${encodeURIComponent(id)}`);
+    const none = await http.req("GET", `${APP}/api/parts/zz-no-such-part-acceptance`);
+    r.check(`Parts: api/parts/${id} answers the record, an unknown id 404`, one.status === 200 && none.status === 404, [one.status, none.status]);
+    if (!docs0.length) {
+        const s = pd.summary || {};
+        const changed = (pd.parts || []).filter(p => p.baseline !== "unchanged").map(p => `${p.id}:${p.baseline}`);
+        r.check(`Parts on an empty converter: 0 datasheets on this appliance (${s.datasheet_on_appliance}), every row unchanged against the baseline`,
+                s.datasheet_on_appliance === 0 && s.baseline && !changed.length, { summary: s, changed: changed.slice(0, 5) });
+    }
+}
 
 // --bundle=<tar>: the restore rehearsal only (Fable v5 W-2): upload in 64 MB chunks (each its own request with
 // Content-Length and X-Chunk-SHA256, under the manifest's 128 MB / 600 s), verify, confirm; twice (the second
@@ -162,6 +185,14 @@ try {
     const head = await p.wait("(() => { const t = document.querySelector('#h-azure')?.innerText || ''; return /Azure/.test(t) && !/…/.test(t) && t; })()",
                               60000, "header");
     r.check(`page header shows "${head}"`, /not set/.test(head), head);
+    if (a.parts !== "0") {
+        await p.eval("document.querySelector('[data-tab=parts]').click()");
+        const line = await p.wait("(() => { const t = document.querySelector('#pt-summary')?.innerText || ''; return /parts ·/.test(t) && t; })()",
+                                  60000, "Parts summary");
+        r.check(`Parts tab: summary line "${line.split("·").slice(0, 2).join("·").trim()} …"`,
+                line.startsWith(`${st.library?.parts} parts ·`) && /on this appliance/.test(line), line);
+        await p.eval("document.querySelector('[data-tab=datasheets]').click()");
+    }
     const lib = await p.eval("document.querySelector('#h-lib').innerText");
     const libNow = ((await http.req("GET", `${APP}/api/status`)).json || {}).library?.version || "?";
     r.check(`page header shows the working library (${lib})`, lib.includes(libNow), { header: lib, api: libNow });
@@ -267,6 +298,27 @@ if (a["factory-reset"] === "1") {
             up && s2?.azure?.state === "not-set" && !az.key_set && !az.endpoint && docs.length === 0, { up, azure: s2?.azure, az, docs: docs.length });
 }
 process.exit(r.done() ? 1 : 0);
+
+// RFC 4180 rows: a quoted field may hold commas, newlines and doubled quotes; a trailing newline ends the last row
+function parseCsv(text) {
+    const rows = [];
+    let row = [], f = "", q = false;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (q) {
+            if (c === '"' && text[i + 1] === '"') { f += '"'; i++; }
+            else if (c === '"') q = false;
+            else f += c;
+        } else if (c === '"') q = true;
+        else if (c === ",") { row.push(f); f = ""; }
+        else if (c === "\n" || c === "\r") {
+            if (c === "\r" && text[i + 1] === "\n") i++;
+            row.push(f); rows.push(row); row = []; f = "";
+        } else f += c;
+    }
+    if (f || row.length) { row.push(f); rows.push(row); }
+    return rows;
+}
 
 // manifest.json of a ZIP (stored or deflated), without a zip library: the central directory names its offset
 function execZipManifest(buf) {

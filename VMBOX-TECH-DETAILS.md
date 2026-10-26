@@ -237,9 +237,9 @@ depend() {
 
 - `acpid` (busybox applet, init script from `busybox-openrc`) is in `ENABLED_SERVICES`. It maps the ACPI power
   button (VirtualBox "ACPI Shutdown", `controlvm acpipowerbutton`) to `/etc/acpi/PWRF/00000080`, which runs
-  `poweroff`; the build checks that handler. The kernel's `button` / `evdev` modules load through udev, and acpid
-  only opens the input devices present when it starts, so `/etc/conf.d/acpid` sets `rc_need="udev-settle"` (on a
-  first boot without it, acpid once started too early and ignored the button).
+  `poweroff`; the build checks that handler. The kernel's `button` / `evdev` modules load through udev.
+  acpid logs to `/var/log/acpid.log` and exits if it cannot open it; `/var` is bound from the data partition, which
+  is empty on a first boot and after a factory reset, so the initramfs creates `/var/log` there.
 - `SHUTDOWN_SERVICES` (config.sh) puts `killprocs`, `mount-ro` and our `data-ro` into the shutdown runlevel. The data
   partition also carries the root overlay's upper dir (mounted by the initramfs at `/mnt/data`, not visible after
   switch_root), so mount-ro leaves that filesystem read-write; `data-ro` mounts it once more and remounts it

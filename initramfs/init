@@ -307,8 +307,10 @@ mount_data() {
     # Create overlay directories if they don't exist
     mkdir -p "$OVERLAY_UPPER" "$OVERLAY_WORK"
 
-    # Create var and home directories if they don't exist
-    mkdir -p "${MNT_DATA}/var" "${MNT_DATA}/home"
+    # Create var and home directories if they don't exist. /var/log too: on a first boot (or after a factory reset)
+    # /var is empty, and busybox acpid exits when it cannot open /var/log/acpid.log (then the ACPI power button is
+    # ignored until the next boot).
+    mkdir -p "${MNT_DATA}/var/log" "${MNT_DATA}/home"
 
     debug "Overlay directories ready"
 }

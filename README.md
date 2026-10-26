@@ -264,8 +264,9 @@ image version and data partition, and both are reached through the vmbox dashboa
 | moving to a new release | "My data" pack (download on the old VM, load on the new one) | data bundle on the Data tab (download, restore in 64 MB chunks) |
 
 - **Current images (2026-10-26):** configurator **`vmbox-sbd-configurator-v0.16.1`** (configurator-0.16.1) and
-  converter **`vmbox-partkb-converter-v0.4.0`** (partkb-0.8.0: the Parts tab), both with ACPI shutdown and the
-  dashboard's Shut down. OVAs with `.sha256` and `README-windows.txt` in `/home/adav/extended-disk/vmbox-ova/`. The
+  converter **`vmbox-partkb-converter-v0.4.1`** (partkb-0.8.1: the Parts tab; a restore takes only a bundle whose
+  verify finished), both with ACPI shutdown and the dashboard's Shut down. Converter 0.4.0 (partkb-0.8.0) is
+  superseded by 0.4.1. OVAs with `.sha256` and `README-windows.txt` in `/home/adav/extended-disk/vmbox-ova/`. The
   owner's production VMs on this host are configurator 0.15.5 (8000 / 8008) and converter 0.3.1 (8010): never test
   against them.
 - **Upgrading:** download the user data on the old VM ("My data…" ZIP, or the converter's data bundle), stop it,
@@ -317,8 +318,8 @@ image version and data partition, and both are reached through the vmbox dashboa
    Password), on each VM. A factory reset puts the default back.
 6. **Stopping a VM:** dashboard → Actions → **Shut down**, or in VirtualBox Machine → ACPI Shutdown (closing the
    window: "Send the shutdown signal"). Both stop the apps and leave the data partition clean (images built from
-   vmbox 2026-10-26 on: configurator 0.16.1, converter 0.4.0; older images ignore the ACPI button). "Power off" is
-   for a hung VM only.
+   vmbox 2026-10-26 on: configurator 0.16.1, converter 0.4.0 / 0.4.1; older images ignore the ACPI button).
+   "Power off" is for a hung VM only.
 7. If Windows Firewall asks for VirtualBox, "private networks" is enough for the forwards on `localhost`.
 
 The OVAs carry no serial port. If an older or a custom OVA does not start, see "VM won't start after OVA import on
@@ -334,7 +335,8 @@ Pass the forwarded dashboard port and the dashboard password:
 APPLIANCE_PASSWORD=… make appliance-test APP=configurator HOST=127.0.0.1 PORT=8000 [ARGS="--package=<zip> --part=<id>"]
 APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8010 PDF=../data-sheets-collection/tps3704.pdf \
     ARGS="--package=<layout-2 package of the repo> [--factory-reset=1]"
-APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8010 ARGS="--bundle=<data bundle .tar>"
+APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8010 \
+    ARGS="--bundle=<data bundle .tar> [--unverified=1]"
 APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 --converter-port=8010 [--second-app=sbd-configurator]"
 ```
 
@@ -357,7 +359,20 @@ APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 
   - the empty Cost page.
 
   It sets a dummy Azure endpoint / key and removes it again; never pass a real key. `--bundle=<tar>` runs only the
-  restore rehearsal: two restores of a data bundle in 64 MB chunks, timed, with the counts checked.
+  restore rehearsal: two restores of a data bundle in 64 MB chunks, timed, with the counts checked. `--unverified=1`
+  (partkb-0.8.1 and later) adds two confirms that must answer 409 "no verified bundle" with the data unchanged: a
+  second confirm after a restore, and a confirm after the first half of the bundle failed its verify.
+
+  A shutdown during the verify is a manual check, on a test VM only, with a few documents on it:
+  1. Upload a bundle in chunks and start `POST api/bundle/verify`.
+  2. Under a second into it, press `VBoxManage controlvm <vm> acpipowerbutton`.
+  3. Boot again. The app's `tmp/` (`/data/app-data/partkb-converter/tmp`, over SSH) holds no `bundle-x` or
+     `bundle-upload`, because the server removes them at start.
+  4. `POST api/bundle/restore {"confirm": true}` answers 409 "no verified bundle". The document count and the Cost
+     tab are as before, and there is no new `*.replaced-*` generation.
+
+  The same 409 must come for a half-unpacked `tmp/bundle-x` (with `bundle-manifest.json`, without `.verified`)
+  copied in over SSH while the app runs.
 - `coexist`: two dashboards logged in, in one browser profile (`--second-app=sbd-configurator` for two configurator
   releases).
 

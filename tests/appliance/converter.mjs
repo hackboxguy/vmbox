@@ -10,6 +10,7 @@
 //        [--package=<layout-2 library package>] [--factory-reset=1] [--parts=0 before partkb-0.8.0] [--out=result.txt]
 //   node tests/appliance/converter.mjs … --bundle=<data bundle .tar>   (only the restore rehearsal, twice; the verify must
 //        report no warnings, i.e. content-hash checked, unless --allow-warnings=1)
+//        [--unverified=1 from partkb-0.8.1: a confirm needs a verified bundle; see below]
 //   (or: make appliance-test APP=converter HOST=… PORT=… APPLIANCE_PASSWORD=… PDF=…)
 // Run against 127.0.0.1 / localhost (or https): the page hashes a dropped file only in a secure context.
 import { basename, resolve } from "node:path";
@@ -68,17 +69,28 @@ if (a.parts !== "0" && !a.bundle) {
 if (a.bundle) {
     const buf = readFileSync(a.bundle);
     const CH = 64 * 1024 * 1024;
-    for (const round of [1, 2]) {
-        const t0 = Date.now(), times = [];
+    const upload = async data => {
+        const times = [];
         let n = 0, okc = true;
-        for (let off = 0; off < buf.length; off += CH, n++) {
-            const part = buf.subarray(off, off + CH), t = Date.now();
+        for (let off = 0; off < data.length; off += CH, n++) {
+            const part = data.subarray(off, off + CH), t = Date.now();
             const up = await http.req("PUT", `${APP}/api/bundle/upload/${n}`, { body: part, type: "application/octet-stream",
                 headers: { "X-Chunk-SHA256": createHash("sha256").update(part).digest("hex") } });
             times.push(((Date.now() - t) / 1000).toFixed(1));
             okc &&= up.status === 200 && up.json?.bytes === part.length;
             if (up.status !== 200) r.info(`chunk ${n}: ${up.status} ${JSON.stringify(up.json).slice(0, 200)}`);
         }
+        return { n, okc, times };
+    };
+    const counts = async () => {
+        const docs = (await http.req("GET", `${APP}/api/documents`)).json || {};
+        const cost = (await http.req("GET", `${APP}/api/cost`)).json || {};
+        return { documents: docs.total ?? (docs.documents || []).length, calls: cost.calls, cost_usd: cost.total_usd };
+    };
+    const confirm = () => http.req("POST", `${APP}/api/bundle/restore`, { body: JSON.stringify({ confirm: true }), type: "application/json" });
+    for (const round of [1, 2]) {
+        const t0 = Date.now();
+        const { n, okc, times } = await upload(buf);
         r.check(`restore ${round}: ${(buf.length / 1048576).toFixed(0)} MB in ${n} chunks of <= 64 MB through the proxy (s per chunk: ${times.join(", ")})`, okc);
         let t = Date.now();
         const ver = await http.req("POST", `${APP}/api/bundle/verify`, { body: JSON.stringify({ chunks: n }), type: "application/json" });
@@ -90,18 +102,34 @@ if (a.bundle) {
             r.check(`restore ${round}: verified with content hashes (no warnings)`, ver.status === 200 && !(ver.json?.bundle?.warnings || []).length,
                     ver.json?.bundle?.warnings);
         t = Date.now();
-        const res = await http.req("POST", `${APP}/api/bundle/restore`, { body: JSON.stringify({ confirm: true }), type: "application/json" });
+        const res = await confirm();
         const rs = ((Date.now() - t) / 1000).toFixed(1);
         r.check(`restore ${round}: confirmed in ${rs} s, ${(res.json?.restored || []).length} parts swapped in, previous generation ${res.json?.kept_generation}`,
                 res.status === 200 && (res.json?.restored || []).length > 0, res.json || res.status);
         const want = ver.json?.bundle?.counts || {};
-        const docs = (await http.req("GET", `${APP}/api/documents`)).json || {};
-        const cost = (await http.req("GET", `${APP}/api/cost`)).json || {};
-        const ndocs = docs.total ?? (docs.documents || []).length;
-        r.check(`restore ${round}: document list shows the bundle's ${want.documents} documents (${ndocs})`, ndocs === want.documents, { docs: ndocs, want });
-        r.check(`restore ${round}: Cost tab shows the bundle's ${want.calls} calls / USD ${want.cost_usd} (${cost.calls} / ${cost.total_usd})`,
-                cost.calls === want.calls && Math.abs((cost.total_usd || 0) - (want.cost_usd || 0)) < 0.01, { cost: [cost.calls, cost.total_usd], want });
+        const c = await counts();
+        r.check(`restore ${round}: document list shows the bundle's ${want.documents} documents (${c.documents})`, c.documents === want.documents, { docs: c.documents, want });
+        r.check(`restore ${round}: Cost tab shows the bundle's ${want.calls} calls / USD ${want.cost_usd} (${c.calls} / ${c.cost_usd})`,
+                c.calls === want.calls && Math.abs((c.cost_usd || 0) - (want.cost_usd || 0)) < 0.01, { cost: [c.calls, c.cost_usd], want });
         r.info(`restore ${round} total ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+    }
+    // --unverified=1 (partkb-0.8.1): a confirm swaps in only a bundle whose verify finished. The confirm consumed the
+    // marker, so a second one answers 409; the first half of the tar fails its verify, which removes what it unpacked,
+    // so the confirm after it answers 409 too. Both leave the data as it is. A half-unpacked bundle-x left by a
+    // shutdown during the verify is the manual check in README "Appliance acceptance tests".
+    if (a.unverified === "1") {
+        const before = await counts();
+        const no = (res, what) => r.check(`unverified: ${what}: the confirm answers 409 "no verified bundle", data unchanged`,
+            res.status === 409 && /no verified bundle/.test(res.json?.error || ""), res.json || res.status);
+        no(await confirm(), "a second confirm after a restore");
+        const half = buf.subarray(0, Math.floor(buf.length / 2));
+        const { n, okc } = await upload(half);
+        r.check(`unverified: the first half of the bundle (${(half.length / 1048576).toFixed(0)} MB) uploaded in ${n} chunks`, okc);
+        const ver = await http.req("POST", `${APP}/api/bundle/verify`, { body: JSON.stringify({ chunks: n }), type: "application/json" });
+        r.check(`unverified: its verify fails (${ver.status} ${(ver.json?.error || "").slice(0, 80)})`, ver.status !== 200, ver.json || ver.status);
+        no(await confirm(), "the half bundle");
+        const after = await counts();
+        r.check(`unverified: documents / calls / cost as before (${JSON.stringify(after)})`, JSON.stringify(after) === JSON.stringify(before), { before, after });
     }
     process.exit(r.done() ? 1 : 0);
 }

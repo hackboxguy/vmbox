@@ -266,9 +266,14 @@ image version and data partition, and both are reached through the vmbox dashboa
 - **Current images (2026-10-26):** configurator **`vmbox-sbd-configurator-v0.16.1`** (configurator-0.16.1) and
   converter **`vmbox-partkb-converter-v0.4.1`** (partkb-0.8.1: the Parts tab; a restore takes only a bundle whose
   verify finished), both with ACPI shutdown and the dashboard's Shut down. Converter 0.4.0 (partkb-0.8.0) is
-  superseded by 0.4.1. OVAs with `.sha256` and `README-windows.txt` in `/home/adav/extended-disk/vmbox-ova/`. The
-  owner's production VMs on this host are configurator 0.15.5 (8000 / 8008) and converter 0.3.1 (8010): never test
-  against them.
+  superseded by 0.4.1. OVAs with `.sha256` and `README-windows.txt` in `/home/adav/extended-disk/vmbox-ova/`.
+  text-to-block is pinned at `configurator-0.16.2`, which has no image yet.
+- **Production VMs on this host** (the owner's, since 2026-10-26; never start, stop, log in to or test against them).
+  Both are imported into `/home/adav/extended-disk/vmbox-vms/`, on the OVA's stock forwards:
+  - `vmbox-sbd-configurator-v0.16.1`: forwards 8000 / 8008 / 8003 / 2222, LAN http://192.168.1.80:8008/;
+  - `vmbox-partkb-converter-v0.4.1-prod`: forwards 8010 / 8013 / 2223, LAN http://192.168.1.80:8010/.
+
+  There are no test VMs; `vmbox-build/` is empty.
 - **Upgrading:** download the user data on the old VM ("My data…" ZIP, or the converter's data bundle), stop it,
   import the new OVA, then load / restore the data there, enter the Azure key again (converter) and remove the old
   VM. `README-windows.txt` has the steps; the old VM must be stopped first because the host ports are the same.
@@ -290,14 +295,18 @@ image version and data partition, and both are reached through the vmbox dashboa
   and holds the raw image, the OVA **and the registered VM's disk**. tmpfs (`/tmp`) is refused unless
   `--allow-tmpfs`, because a host reboot would delete the disk of a registered VM (as happened on 2026-10-25). Keep
   released OVAs and running VMs on a persistent disk: `VBoxManage import <ova> --vsys 0 --basefolder <dir>`.
-  A build refuses to start while a VM of its name, or one running from a disk in its output dir, is registered
-  (the production converter 0.3.1 runs from `vmbox-build/partkb-converter-0.3.1`); unregister a test VM first, or
-  pass `--replace-vm`.
+  A build refuses to start while a VM of its name, or one running from a disk in its output dir, is registered.
+  Unregister a test VM first, or pass `--replace-vm`. A build registers its VM under the image's name: the
+  configurator production VM is `vmbox-sbd-configurator-v0.16.1`, so never rebuild 0.16.1 on this host. Production
+  VMs are imported into `vmbox-vms/`; they never run from a build dir.
 - **Host ports:** the converter has its own (8010 / 8013 / 2223, from `build-partkb-converter-ova.sh`, vmbox
   2026-10-26), so one configurator and one converter import and run side by side with no VirtualBox settings change.
   Converter images before that (0.1.0 … 0.3.0) still use 8000 / 8003 / 2222.
-- **Test boot next to a running VM of the same kind** (or an old converter image): move every NAT forward of the test
-  VM first (configurator 8000 / 8008 / 8003 / 2222, converter 8010 / 8013 / 2223), and stop it afterwards.
+- **Test boot:** acceptance tests run against a fresh test VM, never against the production VMs.
+  1. Build the test VM, or import it with its own `--vmname`.
+  2. Before the first start, move every NAT forward. The configurator's 8000 / 8008 / 8003 / 2222 become e.g.
+     18000 / 18008 / 18003 / 12222. The converter's 8010 / 8013 / 2223 become e.g. 28000 / 28003 / 22222.
+  3. Shut the VM down afterwards, and unregister it with `--delete` when the round is over.
 - **Stopping an appliance** (images from vmbox 2026-10-26 on): `VBoxManage controlvm <vm> acpipowerbutton`, VirtualBox's
   "ACPI Shutdown", or the dashboard's **Shut down** (`POST /api/shutdown`). All run the OpenRC shutdown: apps stopped
   through their `shutdown.d` scripts, then the data partition remounted read-only (`data-ro`), off in about 5-10 s.
@@ -329,15 +338,16 @@ Windows" under Troubleshooting.
 
 `tests/appliance/` runs against a booted VM through its dashboard, as a user's browser would: HTTP with the
 dashboard login, plus headless chromium over CDP (Node >= 22, `chromium` on PATH). It is not part of `make check`.
-Pass the forwarded dashboard port and the dashboard password:
+Pass the forwarded dashboard port of a test VM (moved forwards, see "Test boot" above; never a production VM) and
+the dashboard password:
 
 ```bash
-APPLIANCE_PASSWORD=… make appliance-test APP=configurator HOST=127.0.0.1 PORT=8000 [ARGS="--package=<zip> --part=<id>"]
-APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8010 PDF=../data-sheets-collection/tps3704.pdf \
+APPLIANCE_PASSWORD=… make appliance-test APP=configurator HOST=127.0.0.1 PORT=18000 [ARGS="--package=<zip> --part=<id>"]
+APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=28000 PDF=../data-sheets-collection/tps3704.pdf \
     ARGS="--package=<layout-2 package of the repo> [--factory-reset=1]"
-APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=8010 \
+APPLIANCE_PASSWORD=… make appliance-test APP=converter HOST=127.0.0.1 PORT=28000 \
     ARGS="--bundle=<data bundle .tar> [--unverified=1]"
-APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=8000 --converter-port=8010 [--second-app=sbd-configurator]"
+APPLIANCE_PASSWORD=… make appliance-test APP=coexist ARGS="--config-port=18000 --converter-port=28000 [--second-app=sbd-configurator]"
 ```
 
 - `configurator`:

@@ -263,10 +263,14 @@ image version and data partition, and both are reached through the vmbox dashboa
 | data partition | 1 GB: `/data/app-data/sbd-configurator/` (profiles, parts, price sets, pictures, photos, `library-overlay/`) | 16 GB dynamically allocated VDI: `/data/app-data/partkb-converter/` (store, data repository, working library, packages, jobs) and `/data/app-config/partkb-converter/` (Azure key 0600, settings) |
 | moving to a new release | "My data" pack (download on the old VM, load on the new one) | data bundle on the Data tab (download, restore in 64 MB chunks) |
 
-- **Current images (2026-10-26):** configurator `vmbox-sbd-configurator-v0.16.0` (configurator-0.16.0) and converter
-  **`vmbox-partkb-converter-v0.3.0`** (partkb-0.7.2: the data bundle's per-file content hashes are checked on
-  restore). The converter 0.3.0 is the image for the owner's P5 (partkb `docs/partkb-vm-plan.md` §9). OVAs in
-  `/home/adav/extended-disk/vmbox-ova/`.
+- **Current images (2026-10-26):** configurator **`vmbox-sbd-configurator-v0.16.1`** (configurator-0.16.1) and
+  converter **`vmbox-partkb-converter-v0.4.0`** (partkb-0.8.0: the Parts tab), both with ACPI shutdown and the
+  dashboard's Shut down. OVAs with `.sha256` and `README-windows.txt` in `/home/adav/extended-disk/vmbox-ova/`. The
+  owner's production VMs on this host are configurator 0.15.5 (8000 / 8008) and converter 0.3.1 (8010): never test
+  against them.
+- **Upgrading:** download the user data on the old VM ("My data…" ZIP, or the converter's data bundle), stop it,
+  import the new OVA, then load / restore the data there, enter the Azure key again (converter) and remove the old
+  VM. `README-windows.txt` has the steps; the old VM must be stopped first because the host ports are the same.
 - **Cookies:** the dashboard's session cookie is `session-<hostname>-<image version>`. Two appliances, or two
   releases of one appliance (the old and the new VM during a move), reached on one host keep separate logins.
 - **Proxy limits** come from each app's manifest: `"proxy": {"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`;

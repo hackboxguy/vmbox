@@ -289,6 +289,9 @@ image version and data partition, and both are reached through the vmbox dashboa
   and holds the raw image, the OVA **and the registered VM's disk**. tmpfs (`/tmp`) is refused unless
   `--allow-tmpfs`, because a host reboot would delete the disk of a registered VM (as happened on 2026-10-25). Keep
   released OVAs and running VMs on a persistent disk: `VBoxManage import <ova> --vsys 0 --basefolder <dir>`.
+  A build refuses to start while a VM of its name, or one running from a disk in its output dir, is registered
+  (the production converter 0.3.1 runs from `vmbox-build/partkb-converter-0.3.1`); unregister a test VM first, or
+  pass `--replace-vm`.
 - **Host ports:** the converter has its own (8010 / 8013 / 2223, from `build-partkb-converter-ova.sh`, vmbox
   2026-10-26), so one configurator and one converter import and run side by side with no VirtualBox settings change.
   Converter images before that (0.1.0 … 0.3.0) still use 8000 / 8003 / 2222.

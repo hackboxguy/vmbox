@@ -50,6 +50,7 @@ HOST_WEBTERMINAL_PORT="8013"
 HOST_SSH_PORT="2223"
 SKIP_TAG_CHECK=false
 VM_NAME=""
+REPLACE_VM=false
 CLEAN=false
 EXPORT_OVA=true
 START_VM=false
@@ -73,6 +74,7 @@ Usage: $0 [OPTIONS]
   --clean           Remove the output dir before building (fresh build)
   --dry-run         Print the plan and the checks, change nothing
   --no-ova          Register the VM but skip OVA export
+  --replace-vm      Build even if a registered VM of this name or with its disk in --output exists (it is deleted)
   --start           Start the VM headless after building
   --skip-tag-check  Do not stop at the pre-flight when the pinned tag is missing (the app step then fails)
   --help, -h        Show this help
@@ -93,6 +95,7 @@ for arg in "$@"; do
         --clean)       CLEAN=true ;;
         --dry-run)     DRY_RUN=true ;;
         --no-ova)      EXPORT_OVA=false ;;
+        --replace-vm)  REPLACE_VM=true ;;
         --start)       START_VM=true ;;
         --skip-tag-check) SKIP_TAG_CHECK=true ;;
         --help|-h)     show_usage ;;
@@ -118,6 +121,19 @@ out_fs="$(findmnt -no FSTYPE --target "$out_probe" 2>/dev/null || stat -f -c %T 
 if [ "$out_fs" = "tmpfs" ] || [[ "$OUTPUT_DIR" == /tmp/* ]]; then
     [ "$ALLOW_TMPFS" = true ] || fail "--output ${OUTPUT_DIR} is on tmpfs (${out_fs}): the VM's disk would not survive a reboot. Use the default (\${VMBOX_BUILD_ROOT:-/home/adav/extended-disk/vmbox-build}) or pass --allow-tmpfs for a throw-away build."
     echo "WARNING: --output on tmpfs (--allow-tmpfs): the VM is lost on reboot" >&2
+fi
+
+# A build re-creates the VM (04-convert-to-vbox.sh --force: unregister + delete its disk) and --clean deletes the
+# output dir. A registered VM of this name, or one running from a disk in the output dir, would go with it: maybe
+# the owner's, with the only copy of its data (the production converter 0.3.1 runs from its build dir). Refuse.
+if command -v VBoxManage >/dev/null 2>&1 && [ "$REPLACE_VM" != true ]; then
+    while IFS= read -r vm_line; do
+        vm="${vm_line#\"}"; vm="${vm%\" \{*}"
+        vm_disks="$(VBoxManage showvminfo "$vm" --machinereadable 2>/dev/null | sed -n 's/^"[^"]*-[0-9]*-[0-9]*"="\(\/[^"]*\)"$/\1/p')"
+        if [ "$vm" = "$VM_NAME" ] || grep -qF "${OUTPUT_DIR%/}/" <<<"$vm_disks"; then
+            fail "VM '${vm}' is registered (disk: ${vm_disks:-none}); this build would delete it. A test VM: VBoxManage unregistervm '${vm}' --delete, then build again. Another --vmname / --output, or --replace-vm to build over it anyway."
+        fi
+    done < <(VBoxManage list vms 2>/dev/null)
 fi
 
 [ "$(id -u)" -ne 0 ] || fail "run this as a normal user, not root (it calls sudo; VirtualBox VMs are per-user)."

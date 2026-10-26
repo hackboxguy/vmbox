@@ -289,8 +289,12 @@ image version and data partition, and both are reached through the vmbox dashboa
   2026-10-26), so one configurator and one converter import and run side by side with no VirtualBox settings change.
   Converter images before that (0.1.0 … 0.3.0) still use 8000 / 8003 / 2222.
 - **Test boot next to a running VM of the same kind** (or an old converter image): move every NAT forward of the test
-  VM first (configurator 8000 / 8008 / 8003 / 2222, converter 8010 / 8013 / 2223), and power it off afterwards
-  (`VBoxManage controlvm <vm> poweroff`).
+  VM first (configurator 8000 / 8008 / 8003 / 2222, converter 8010 / 8013 / 2223), and stop it afterwards.
+- **Stopping an appliance** (images from vmbox 2026-10-26 on): `VBoxManage controlvm <vm> acpipowerbutton`, VirtualBox's
+  "ACPI Shutdown", or the dashboard's **Shut down** (`POST /api/shutdown`). All run the OpenRC shutdown: apps stopped
+  through their `shutdown.d` scripts, then the data partition remounted read-only (`data-ro`), off in about 5-10 s.
+  `controlvm <vm> poweroff` is a hard power cut, for a hung VM only. Older images have no ACPI daemon and ignore the
+  button.
 
 ### Windows PC: import and first start
 
@@ -304,7 +308,11 @@ image version and data partition, and both are reached through the vmbox dashboa
    `http://localhost:8008`); converter dashboard: `http://localhost:8010`. Applications → the app.
 5. Log in with the default credentials (below) and change the password at once (dashboard → Actions → Change
    Password), on each VM. A factory reset puts the default back.
-6. If Windows Firewall asks for VirtualBox, "private networks" is enough for the forwards on `localhost`.
+6. **Stopping a VM:** dashboard → Actions → **Shut down**, or in VirtualBox Machine → ACPI Shutdown (closing the
+   window: "Send the shutdown signal"). Both stop the apps and leave the data partition clean (images built from
+   vmbox 2026-10-26 on: configurator 0.16.1, converter 0.4.0; older images ignore the ACPI button). "Power off" is
+   for a hung VM only.
+7. If Windows Firewall asks for VirtualBox, "private networks" is enough for the forwards on `localhost`.
 
 The OVAs carry no serial port. If an older or a custom OVA does not start, see "VM won't start after OVA import on
 Windows" under Troubleshooting.

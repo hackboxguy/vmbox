@@ -40,6 +40,7 @@ DEFAULT_WEBTERMINAL_PORT="8003:8003"
 ALPINE_BASE_PACKAGES=(
     # Core system
     "alpine-base"
+    "busybox-openrc"         # init scripts for busybox applets, among them acpid (ACPI power button -> poweroff)
     "linux-lts"              # Full kernel with USB support (not linux-virt)
     "linux-firmware-none"
 
@@ -182,6 +183,16 @@ ENABLED_SERVICES=(
     "system-mgmt"
     "business-app"
     "app-manager"
+    "acpid"                    # busybox acpid: VirtualBox "ACPI Shutdown" runs /etc/acpi/PWRF/00000080 (poweroff)
+)
+
+# Shutdown runlevel: stop everything, then leave the data partition read-only (a clean journal on the next boot).
+# data-ro is ours (rootfs/etc/init.d): the data filesystem also carries the root overlay's upper dir, which
+# mount-ro alone cannot make read-only.
+SHUTDOWN_SERVICES=(
+    "killprocs"
+    "mount-ro"
+    "data-ro"
 )
 
 # Syslinux configuration template

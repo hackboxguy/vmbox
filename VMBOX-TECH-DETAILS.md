@@ -233,6 +233,17 @@ depend() {
 }
 ```
 
+### Shutdown and the ACPI power button
+
+- `acpid` (busybox applet, init script from `busybox-openrc`) is in `ENABLED_SERVICES`. It maps the ACPI power
+  button (VirtualBox "ACPI Shutdown", `controlvm acpipowerbutton`) to `/etc/acpi/PWRF/00000080`, which runs
+  `poweroff`; the build checks that handler. The kernel's `button` / `evdev` modules load through udev.
+- `SHUTDOWN_SERVICES` (config.sh) puts `killprocs`, `mount-ro` and our `data-ro` into the shutdown runlevel. The data
+  partition also carries the root overlay's upper dir (mounted by the initramfs at `/mnt/data`, not visible after
+  switch_root), so mount-ro leaves that filesystem read-write; `data-ro` mounts it once more and remounts it
+  read-only. Without it every shutdown left the ext4 journal to be replayed ("recovery complete" on the next boot).
+- The dashboard's Shut down (`POST /api/shutdown`, login required) runs `poweroff`, the same path.
+
 ### Service Enable Order
 
 Services are enabled in the order listed in `ENABLED_SERVICES`. For proper boot sequence:

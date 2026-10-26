@@ -474,7 +474,9 @@ sudo ./build.sh \
 ### Shutdown Sequence
 
 ```
-1. System shutdown initiated (reboot/poweroff)
+1. System shutdown initiated: reboot / poweroff, the dashboard's Reboot / Shut down (POST /api/reboot,
+   /api/shutdown), or VirtualBox's "ACPI Shutdown" (busybox acpid: power button -> /etc/acpi/PWRF/00000080 ->
+   poweroff)
 2. OpenRC stops services in reverse order
 3. app-manager receives stop signal:
    a. Read shutdown order from manifest
@@ -486,7 +488,9 @@ sudo ./build.sh \
       v.   Log result
    c. All apps stopped
 4. app-manager exits
-5. System unmounts filesystems
+5. Shutdown runlevel: killprocs, mount-ro (unmounts /data, /var, /home; / read-only), data-ro (the data
+   filesystem itself read-only: it also holds the root overlay's upper dir, mounted by the initramfs at /mnt/data
+   and invisible to mount-ro). The next boot then needs no journal recovery.
 6. Power off / Reboot
 ```
 

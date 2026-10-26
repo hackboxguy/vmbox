@@ -1,0 +1,34 @@
+#!/sbin/openrc-run
+#
+# data-ro - make the data partition read-only as the last shutdown step.
+#
+# The initramfs mounts the data partition (kernel argument data=) at /mnt/data and builds the root overlay with its
+# upper dir there; /data, /var and /home are further mounts of the same filesystem. OpenRC's localmount / mount-ro
+# unmount those and remount / (the overlay) read-only, but /mnt/data is not visible after switch_root, so the
+# filesystem itself stays read-write and every shutdown leaves its journal to be replayed on the next boot. This
+# service mounts the same filesystem once more and remounts it read-only (a remount changes the filesystem, not only
+# the mount point), after the overlay is read-only and every process is gone.
+
+description="Remount the data partition read-only for a clean poweroff"
+
+depend()
+{
+	after killprocs savecache mount-ro
+	keyword -docker -podman -lxc -openvz -prefix -systemd-nspawn -vserver
+}
+
+start()
+{
+	local dev= arg= point=/run/data-ro
+	for arg in $(cat /proc/cmdline); do
+		case "$arg" in data=*) dev="${arg#data=}" ;; esac
+	done
+	[ -b "$dev" ] || { ewarn "No data partition on the kernel command line"; return 0; }
+
+	sync
+	ebegin "Remounting the data partition $dev read-only"
+	mkdir -p "$point" &&
+		mount -t ext4 "$dev" "$point" &&
+		mount -o remount,ro "$point"
+	eend $?
+}

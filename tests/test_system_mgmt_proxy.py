@@ -228,6 +228,18 @@ class SystemManagementProxyTests(TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.get_json(), {"error": "Session expired"})
 
+    def test_reboot_and_shutdown_need_a_login_and_run_the_system_command(self):
+        for path, command in (("/api/reboot", "reboot"), ("/api/shutdown", "poweroff")):
+            with mock.patch.object(self.module.subprocess, "Popen") as popen:
+                response = self.module.app.test_client().post(path)
+                self.assertNotEqual(response.status_code, 200, path)
+                popen.assert_not_called()
+                response = self.authenticated_client().post(path)
+                self.assertEqual(response.status_code, 200, path)
+                self.assertEqual(response.get_json()["status"], "success")
+                popen.assert_called_once()
+                self.assertEqual(popen.call_args.args[0], [command])
+
     def test_fpga_write_rejects_missing_browser_contract_headers(self):
         response = self.authenticated_client().post(
             "/app/fpga-flasher-webapp/api/v1/artifacts", data=b"x"

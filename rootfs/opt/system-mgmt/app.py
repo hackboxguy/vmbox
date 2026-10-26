@@ -29,6 +29,7 @@ Endpoints:
     GET  /api/system/network    - Network information
     POST /api/factory-reset     - Reset to factory defaults
     POST /api/reboot            - Reboot the system
+    POST /api/shutdown          - Shut the system down (power off; start it again from VirtualBox)
     GET  /app/<name>/*          - Reverse proxy to applications (requires login)
 """
 
@@ -1434,6 +1435,23 @@ def api_reboot():
         return jsonify({
             'status': 'error',
             'message': f'Reboot failed: {e}'
+        }), 500
+
+
+@app.route('/api/shutdown', methods=['POST'])
+@login_required
+def api_shutdown():
+    """Shut the system down: the same OpenRC shutdown as VirtualBox's ACPI Shutdown (apps stopped, data read-only)."""
+    try:
+        subprocess.Popen(['poweroff'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return jsonify({
+            'status': 'success',
+            'message': 'System is shutting down. Start it again from VirtualBox.'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Shutdown failed: {e}'
         }), 500
 
 

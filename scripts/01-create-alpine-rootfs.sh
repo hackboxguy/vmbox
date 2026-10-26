@@ -433,6 +433,13 @@ install_services() {
             debug_log "Service not found, skipping: $service"
         fi
     done
+    for service in "${SHUTDOWN_SERVICES[@]}"; do
+        [ -f "${ROOTFS_DIR}/etc/init.d/${service}" ] || error "Shutdown service not found: $service"
+        chroot_enable_service "$ROOTFS_DIR" "$service" "shutdown"
+    done
+    # busybox-openrc's power-button handler; busybox acpid maps the ACPI power button to PWRF/00000080
+    grep -qx 'poweroff' "${ROOTFS_DIR}/etc/acpi/PWRF/00000080" 2>/dev/null ||
+        error "ACPI power-button handler /etc/acpi/PWRF/00000080 missing or not 'poweroff'"
 
     info "Services installed and enabled"
 }

@@ -750,6 +750,9 @@
                     <button class="btn btn-secondary" onclick="rebootSystem()">
                         Reboot
                     </button>
+                    <button class="btn btn-secondary" onclick="showShutdownModal()">
+                        Shut down
+                    </button>
                     <button class="btn btn-danger" onclick="showFactoryResetModal()">
                         Factory Reset
                     </button>
@@ -811,6 +814,23 @@
                     Yes, Reset
                 </button>
                 <button class="btn btn-secondary" onclick="hideFactoryResetModal()">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shutdown Modal -->
+    <div class="modal" id="shutdown-modal">
+        <div class="modal-content">
+            <h3>Shut down</h3>
+            <p>This stops the appliance: the applications are stopped and the data is written safely.</p>
+            <p>Start it again from VirtualBox.</p>
+            <div class="modal-buttons">
+                <button class="btn btn-danger" onclick="performShutdown()">
+                    Shut down
+                </button>
+                <button class="btn btn-secondary" onclick="hideShutdownModal()">
                     Cancel
                 </button>
             </div>
@@ -1324,6 +1344,31 @@
                 }
             } catch (error) {
                 alert('Failed to reboot: ' + error.message);
+            }
+        }
+
+        function showShutdownModal() {
+            document.getElementById('shutdown-modal').classList.add('active');
+        }
+
+        function hideShutdownModal() {
+            document.getElementById('shutdown-modal').classList.remove('active');
+        }
+
+        async function performShutdown() {
+            hideShutdownModal();
+
+            try {
+                const response = await fetch('/api/shutdown', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    alert('The appliance is shutting down. Start it again from VirtualBox.');
+                } else {
+                    alert('Shutdown failed: ' + data.message);
+                }
+            } catch (error) {
+                alert('Failed to shut down: ' + error.message);
             }
         }
 

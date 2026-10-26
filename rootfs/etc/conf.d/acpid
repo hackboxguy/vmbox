@@ -1,0 +1,4 @@
+# busybox acpid opens the /dev/input/event* devices that exist when it starts, so it must wait until udev has
+# loaded button / evdev and created the power-button device; on the first boot after an import it once came up
+# too early and ignored VirtualBox's ACPI Shutdown.
+rc_need="udev-settle"

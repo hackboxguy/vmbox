@@ -7,6 +7,7 @@
 //
 //   node tests/appliance/configurator.mjs --host=127.0.0.1 --port=8000 --password=… [--out=result.txt]
 //   (or: make appliance-test APP=configurator HOST=… PORT=… APPLIANCE_PASSWORD=…)
+import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { args, reporter, Http, Browser, browserLogin, tabsTest, isSessionCookie, inflateJpeg } from "./lib.mjs";
 
@@ -92,7 +93,8 @@ try {
         await p.wait("document.querySelector('#lp-file')", 15000, "library dialog");
         const doc = await p.send("DOM.getDocument", {});
         const { nodeId } = await p.send("DOM.querySelector", { nodeId: doc.root.nodeId, selector: "#lp-file" });
-        await p.send("DOM.setFileInputFiles", { nodeId, files: [a.package] });
+        // CDP needs an absolute path: a relative one leaves the input empty
+        await p.send("DOM.setFileInputFiles", { nodeId, files: [resolve(a.package)] });
         await p.eval("document.querySelector('#lp-check').click(), true");
         const res = await p.wait("document.querySelector('#lp-apply') ? 'ok' : (document.querySelector('#lp-report h3') ? document.querySelector('#lp-report').innerText : '')",
                                  180000, "package check");

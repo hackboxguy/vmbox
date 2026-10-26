@@ -12,7 +12,7 @@
 //        report no warnings, i.e. content-hash checked, unless --allow-warnings=1)
 //   (or: make appliance-test APP=converter HOST=… PORT=… APPLIANCE_PASSWORD=… PDF=…)
 // Run against 127.0.0.1 / localhost (or https): the page hashes a dropped file only in a secure context.
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -171,6 +171,13 @@ await stale.login(a.user, a.password);
 r.check("after logging in again the app works", (await stale.req("GET", `${APP}/api/status`)).status === 200);
 
 const b = await Browser.launch();
+// the page's own errors, so a broken step names its cause instead of a bare timeout
+b.handlers.push(m => {
+    if (m.method === "Runtime.exceptionThrown")
+        r.info(`page exception: ${(m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text || "").split("\n")[0]}`);
+    if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error")
+        r.info(`page console error: ${m.params.args.map(x => x.value ?? x.description).join(" ").slice(0, 200)}`);
+});
 try {
     const p = await b.page();
     await browserLogin(p, base, a.user, a.password);
@@ -232,7 +239,8 @@ try {
             const doc = await p.send("DOM.getDocument", {});
             const { nodeId } = await p.send("DOM.querySelector", { nodeId: doc.root.nodeId, selector: "#files" });
             await p.eval("document.querySelector('#notices').innerHTML = '', true");
-            await p.send("DOM.setFileInputFiles", { nodeId, files: [a.pdf] });
+            // CDP needs an absolute path: a relative one leaves the input empty (no change event, a timeout)
+            await p.send("DOM.setFileInputFiles", { nodeId, files: [resolve(a.pdf)] });
             // the final notice, not the "uploading…" / "checking…" progress line
             return p.wait("(() => { const t = (document.querySelector('#notices') || {}).innerText || ''; return t && !/uploading|checking|hashing/i.test(t) && t; })()",
                           300000, "upload answer");

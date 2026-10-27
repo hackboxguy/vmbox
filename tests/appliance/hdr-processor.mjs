@@ -86,7 +86,13 @@ try {
             r.info(`job ${res} after ${((Date.now() - t0) / 60000).toFixed(1)} min; stages seen: ${[...stages].join(" -> ")}`);
             r.check("progress went through luts, render and verify", ["luts", "render", "verify"].every(x => stages.has(x)), [...stages]);
             r.check("job done", /^done/.test(res), res);
-            const links = await p.eval("[...document.querySelectorAll('#job-result a')].map(e => [e.innerText, e.getAttribute('href')])");
+            // the card shows the progress file's "done" a moment before the job record has its clips: wait for the links
+            let links = [];
+            for (let i = 0; i < 30; i++) {
+                links = await p.eval("[...document.querySelectorAll('#job-result a')].map(e => [e.innerText, e.getAttribute('href')])");
+                if (links.length || !/^done/.test(res)) break;
+                await new Promise(z => setTimeout(z, 1000));
+            }
             const clips = links.filter(l => /clip/i.test(l[0])), reps = links.filter(l => /report/i.test(l[0]));
             r.check(`${mode === "pair" ? 2 : 1} Download clip / report pair(s)`, clips.length === (mode === "pair" ? 2 : 1) && reps.length === clips.length, links);
             for (const [clip, rep] of clips.map((c, i) => [c, reps[i]])) {

@@ -273,7 +273,8 @@ and data partition, and all are reached through the vmbox dashboard.
   - `vmbox-sbd-configurator-v0.16.21`: forwards 8000 / 8008 / 8003 / 2222, LAN http://192.168.1.80:8008/;
   - `vmbox-partkb-converter-v0.4.1-prod`: forwards 8010 / 8013 / 2223, LAN http://192.168.1.80:8010/.
 
-  There are no test VMs; `vmbox-build/` is empty.
+  Test VMs are removed after each acceptance; the HDR processor's OVAs stay in
+  `vmbox-build/hdr-processor-<version>/`.
 - **Upgrading:** download the user data on the old VM ("My data…" ZIP, or the converter's data bundle), stop it,
   import the new OVA, then load / restore the data there, enter the Azure key again (converter) and remove the old
   VM. `README-windows.txt` has the steps; the old VM must be stopped first because the host ports are the same.
@@ -282,8 +283,9 @@ and data partition, and all are reached through the vmbox dashboard.
 - **HDR processor** (8 vCPU, 8 GB, OS partition 1.4 GB since 0.2 for lavapipe's LLVM): a factory reset clears
   `/data/app-data` and with it the seeded master; upload it again on the Masters tab. 0.2 adds the SDR modes
   (`sdr-today`, `sdr-managed`, the shootout pair): libplacebo on lavapipe runs ~1.8 fps at 1080p, so an SDR
-  excerpt takes over an hour. Acceptance: `apps/sdr-hdr-shootout-demo/web-app/docs/acceptance-0.1.md`,
-  `make appliance-test APP=hdr-processor HOST=127.0.0.1 PORT=38000 ARGS="--oled-profile=<profile.json> [--master-upload=<file>] [--queue=1] [--mode=pair] [--skip-render=1]"`
+  excerpt takes 48 min (colour-managed, 0.3) to 64 min (the pair). Acceptance:
+  `apps/sdr-hdr-shootout-demo/web-app/docs/acceptance-0.1.md` … `acceptance-0.3.md`,
+  `make appliance-test APP=hdr-processor HOST=127.0.0.1 PORT=38000 ARGS="--oled-profile=<profile.json> [--master-upload=<file>] [--queue=1] [--mode=hdr10plus|hdr10-static|sdr-today|sdr-managed|pair] [--skip-render=1]"`
   (`APPLIANCE_PASSWORD=` the dashboard login).
 - **Proxy limits** come from each app's manifest: `"proxy": {"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`;
   the first matching prefix wins. The default is 1 MB / 30 s, the ceiling 4 GB / 600 s.

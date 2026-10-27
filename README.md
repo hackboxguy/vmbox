@@ -263,14 +263,14 @@ and data partition, and all are reached through the vmbox dashboard.
 | data partition | 1 GB: `/data/app-data/sbd-configurator/` (profiles, parts, price sets, pictures, photos, `library-overlay/`) | 16 GB dynamically allocated VDI: `/data/app-data/partkb-converter/` (store, data repository, working library, packages, jobs) and `/data/app-config/partkb-converter/` (Azure key 0600, settings) | 32 GB dynamically allocated VDI: `/data/app-data/hdr-processor/` (masters, jobs, uploads); the master clip seeded at build time (`03-create-image.sh --dataseed`) |
 | moving to a new release | "My data" pack (download on the old VM, load on the new one) | data bundle on the Data tab (download, restore in 64 MB chunks) | download the clips you need; masters are uploaded again (Masters tab) or seeded by the build |
 
-- **Current images (2026-10-26):** configurator **`vmbox-sbd-configurator-v0.16.3`** (configurator-0.16.3) and
+- **Current images (2026-10-27):** configurator **`vmbox-sbd-configurator-v0.16.5`** (configurator-0.16.5) and
   converter **`vmbox-partkb-converter-v0.4.1`** (partkb-0.8.1: the Parts tab; a restore takes only a bundle whose
   verify finished), both with ACPI shutdown and the dashboard's Shut down. Of these two appliances only the current OVAs (with
   `.sha256`) and `README-windows.txt` are kept in `/home/adav/extended-disk/vmbox-ova/`; older ones were deleted on
-  the owner's request (2026-10-26). Other appliances' OVAs there belong to other sessions.
+  the owner's request (2026-10-26 / 27). Other appliances' OVAs there belong to other sessions.
 - **Production VMs on this host** (the owner's, since 2026-10-26; never start, stop, log in to or test against them).
   Both are imported into `/home/adav/extended-disk/vmbox-vms/`, on the OVA's stock forwards:
-  - `vmbox-sbd-configurator-v0.16.3`: forwards 8000 / 8008 / 8003 / 2222, LAN http://192.168.1.80:8008/;
+  - `vmbox-sbd-configurator-v0.16.5`: forwards 8000 / 8008 / 8003 / 2222, LAN http://192.168.1.80:8008/;
   - `vmbox-partkb-converter-v0.4.1-prod`: forwards 8010 / 8013 / 2223, LAN http://192.168.1.80:8010/.
 
   There are no test VMs; `vmbox-build/` is empty.
@@ -304,7 +304,7 @@ and data partition, and all are reached through the vmbox dashboard.
   released OVAs and running VMs on a persistent disk: `VBoxManage import <ova> --vsys 0 --basefolder <dir>`.
   A build refuses to start while a VM of its name, or one running from a disk in its output dir, is registered.
   Unregister a test VM first, or pass `--replace-vm`. A build registers its VM under the image's name: the
-  configurator production VM is `vmbox-sbd-configurator-v0.16.3`, so never rebuild 0.16.3 on this host. Production
+  configurator production VM is `vmbox-sbd-configurator-v0.16.5`, so never rebuild 0.16.5 on this host. Production
   VMs are imported into `vmbox-vms/`; they never run from a build dir.
 - **Host ports:** the converter has its own (8010 / 8013 / 2223, from `build-partkb-converter-ova.sh`, vmbox
   2026-10-26), so one configurator and one converter import and run side by side with no VirtualBox settings change.

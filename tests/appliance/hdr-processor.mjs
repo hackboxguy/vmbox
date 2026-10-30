@@ -1,15 +1,18 @@
 // Acceptance test of a booted HDR processor appliance, through its dashboard (http://HOST:PORT, the forwarded
 // system-mgmt port; sdr-hdr-shootout-demo web-app/docs/acceptance-0.1.md):
 //   - login, the session-hdr-processor cookie, the app's health through the proxy, a master on the VM;
-//   - in the browser: an OLED profile with "local dimming" selected is refused with the mismatch message, with OLED it
-//     shows the card (type, resolution, peak, black, ABL table); Pi player, 2-minute excerpt, Prepare -> the progress
+//   - in the browser: a profile with the wrong display type selected is refused with the mismatch message (OLED with
+//     "local dimming", edgelit or local dimming with "OLED"), with its own type it shows the card: OLED: type,
+//     2560×1440, peaks, blacks, ABL table; edgelit (web app 0.3.1): type, resolution, the profile's 10 % / full-screen
+//     peak and black, no ABL table, the channel ramps (measured for a v12 profile); Pi player, 2-minute excerpt, Prepare -> the progress
 //     card moves through the stages -> Download clip / report work; the report's LUT hashes are written to
 //     --report-out (compare them with a PC render of the same command);
 //   - --master-upload=FILE: the file uploaded in the browser through the proxy (Masters tab, up to 4 GB), its probe
 //     card, deleted again; deleting the only master refused (409);
 //   - --queue=1: two jobs, the queued one deleted, the running one cancelled (state cancelled, no clip).
 //
-//   node tests/appliance/hdr-processor.mjs --host=127.0.0.1 --port=38000 --password=… --oled-profile=P.json
+//   node tests/appliance/hdr-processor.mjs --host=127.0.0.1 --port=38000 --password=… --profile=P.json --type=edgelit|localdimming|oled
+//        (--oled-profile=P.json = --profile=P.json --type=oled) [--channel-ramps=measured] (the card's channel-ramps row)
 //        [--master-upload=peru-hdr10+.mp4] [--queue=1] [--skip-render=1] [--report-out=r.json] [--out=result.txt]
 //        [--mode=hdr10plus|hdr10-static|sdr-today|sdr-managed|pair] (web app 0.2: the Mode select; default hdr10plus)
 //        [--timeout-min=180]
@@ -22,6 +25,11 @@ const base = `http://${a.host}:${a.port}`;
 const APP = "/app/hdr-processor";
 const COOKIE = a.cookie || "session-hdr-processor";
 const r = reporter(a.out);
+const profPath = a.profile || a["oled-profile"];
+const ptype = a.type || (a["oled-profile"] ? "oled" : null);
+if (profPath && !["edgelit", "localdimming", "oled"].includes(ptype)) throw new Error("--profile needs --type=edgelit|localdimming|oled");
+const TYPE_LABEL = { edgelit: "edgelit", localdimming: "local dimming", oled: "OLED" };
+const wrongType = ptype === "oled" ? "localdimming" : "oled";
 
 const http = new Http(base);
 const li = await http.login(a.user, a.password);
@@ -43,22 +51,35 @@ try {
     await browserLogin(p, base, a.user, a.password);
     await p.goto(base + APP + "/");
     await p.wait("document.querySelector('#dtype') && document.querySelector('#dtype').options.length > 0", 30000, "Prepare form");
-    if (a["oled-profile"]) {
+    if (profPath) {
         const setFile = async (sel, file) => {
             const doc = await p.send("DOM.getDocument", {});
             const { nodeId } = await p.send("DOM.querySelector", { nodeId: doc.root.nodeId, selector: sel });
             await p.send("DOM.setFileInputFiles", { nodeId, files: [resolve(file)] });   // absolute path for CDP
         };
-        await p.eval("document.querySelector('#dtype').value = 'localdimming', true");
-        await setFile("#profile-file", a["oled-profile"]);
+        await p.eval(`document.querySelector('#dtype').value = '${wrongType}', true`);
+        await setFile("#profile-file", profPath);
         const mis = await p.wait("!document.querySelector('#profile-error').classList.contains('hidden') && document.querySelector('#profile-error').innerText", 60000, "mismatch error");
-        r.check("OLED profile with 'local dimming' selected: refused", mis === "profile is oled, you selected local dimming", mis);
-        await p.eval("document.querySelector('#dtype').value = 'oled', true");
-        await setFile("#profile-file", a["oled-profile"]);
+        const misWant = `profile is ${ptype}, you selected ${TYPE_LABEL[wrongType]}`;
+        r.check(`${TYPE_LABEL[ptype]} profile with '${TYPE_LABEL[wrongType]}' selected: refused ("${misWant}")`, mis === misWant, mis);
+        await p.eval(`document.querySelector('#dtype').value = '${ptype}', true`);
+        await setFile("#profile-file", profPath);
         await p.wait("!document.querySelector('#profile-table').classList.contains('hidden')", 60000, "profile card");
         const card = await p.eval("document.querySelector('#profile-table').innerText");
-        r.check("card: type OLED, 2560×1440, peaks, blacks, ABL table present",
-                /OLED/.test(card) && /2560×1440/.test(card) && /peak 10 %/.test(card) && /black full screen/.test(card) && /ABL table\s+present/.test(card), card);
+        if (ptype === "oled") {
+            r.check("card: type OLED, 2560×1440, peaks, blacks, ABL table present",
+                    /OLED/.test(card) && /2560×1440/.test(card) && /peak 10 %/.test(card) && /black full screen/.test(card) && /ABL table\s+present/.test(card), card);
+        } else {
+            const prof = JSON.parse(readFileSync(profPath, "utf8"));
+            const res = (prof.display?.resolution || []).join("×");
+            const pk = prof.luminance?.peak_nits_by_window_pct || {}, bk = prof.luminance?.black_nits || {};
+            const want = [`type\t${TYPE_LABEL[ptype]}`, res, `${pk["10"] ?? "–"} / ${pk["100"] ?? "–"} nits`, `${bk.full_screen ?? "–"} / `];
+            r.check(`card: type ${TYPE_LABEL[ptype]}, ${res}, peak 10 % / full ${pk["10"]} / ${pk["100"]} nits, black ${bk.full_screen} nits, no ABL table`,
+                    want.every(w => card.includes(w)) && !/ABL table/.test(card), card);
+        }
+        const ramps = (card.match(/channel ramps\s+(.*)/) || [])[1];
+        r.info(`card channel ramps: ${ramps ?? "(no row: web app before 0.3.1)"}`);
+        if (a["channel-ramps"]) r.check(`card: channel ramps ${a["channel-ramps"]}`, ramps === a["channel-ramps"], ramps);
         r.check("display type read-only once the profile is loaded", await p.eval("document.querySelector('#dtype').disabled"));
         const modes = await p.eval("document.querySelector('#mode') ? [...document.querySelector('#mode').options].map(o => o.value) : []");
         r.info(`modes offered: ${modes.join(", ") || "(no Mode select: web app 0.1)"}`);
@@ -140,11 +161,11 @@ try {
         r.check("deleting the only master is refused (409)", del.status === 409, del.json || del.status);
     }
 
-    if (a.queue && a["oled-profile"]) {
-        const prof = readFileSync(a["oled-profile"], "utf8");
-        const c = await http.req("POST", `${APP}/api/profile?type=oled`, { body: prof, type: "application/json" });
+    if (a.queue && profPath) {
+        const prof = readFileSync(profPath, "utf8");
+        const c = await http.req("POST", `${APP}/api/profile?type=${ptype}`, { body: prof, type: "application/json" });
         const job = () => http.req("POST", `${APP}/api/jobs`, { type: "application/json", body: JSON.stringify(
-            { master: only[0].name, token: c.json.token, type: "oled", player: "pi", length: "excerpt" }) });
+            { master: only[0].name, token: c.json.token, type: ptype, player: "pi", length: "excerpt" }) });
         const j1 = (await job()).json, j2 = (await job()).json;
         const get = id => http.req("GET", `${APP}/api/jobs/${id}`).then(x => x.json);
         for (let i = 0; i < 120 && (await get(j1.id)).state !== "running"; i++) await new Promise(z => setTimeout(z, 1000));

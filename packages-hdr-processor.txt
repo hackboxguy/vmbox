@@ -4,4 +4,4 @@
 # port.
 #
 # Format: name|repo|tag|cmake args|build deps|port|priority|type|description
-hdr-processor|file://${PROJECT_ROOT}/apps/sdr-hdr-shootout-demo|webapp-0.3.0|-DVMBOX_BUILD=ON|cmake,python3|8011|30|webapp|HDR processor (display-tuned SDR clips)
+hdr-processor|file://${PROJECT_ROOT}/apps/sdr-hdr-shootout-demo|webapp-0.3.1|-DVMBOX_BUILD=ON|cmake,python3|8011|30|webapp|HDR processor (display-tuned SDR clips)

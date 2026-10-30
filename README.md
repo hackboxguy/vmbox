@@ -284,9 +284,11 @@ and data partition, and all are reached through the vmbox dashboard.
   `/data/app-data` and with it the seeded master; upload it again on the Masters tab. 0.2 adds the SDR modes
   (`sdr-today`, `sdr-managed`, the shootout pair): libplacebo on lavapipe runs ~1.8 fps at 1080p, so an SDR
   excerpt takes 48 min (colour-managed, 0.3) to 64 min (the pair). Acceptance:
-  `apps/sdr-hdr-shootout-demo/web-app/docs/acceptance-0.1.md` … `acceptance-0.3.md`,
-  `make appliance-test APP=hdr-processor HOST=127.0.0.1 PORT=38000 ARGS="--oled-profile=<profile.json> [--master-upload=<file>] [--queue=1] [--mode=hdr10plus|hdr10-static|sdr-today|sdr-managed|pair] [--skip-render=1]"`
-  (`APPLIANCE_PASSWORD=` the dashboard login).
+  `apps/sdr-hdr-shootout-demo/web-app/docs/acceptance-0.1.md` … `acceptance-0.3.1.md`,
+  `make appliance-test APP=hdr-processor HOST=127.0.0.1 PORT=38000 ARGS="--profile=<profile.json> --type=edgelit|localdimming|oled [--channel-ramps=measured] [--master-upload=<file>] [--queue=1] [--mode=hdr10plus|hdr10-static|sdr-today|sdr-managed|pair] [--skip-render=1]"`
+  (`--oled-profile=<profile.json>` = `--profile=… --type=oled`; `APPLIANCE_PASSWORD=` the dashboard login).
+  **0.3.1** (`webapp-0.3.1`): the upload takes v12 profiles (the creator's measured per-channel ramps, which 0.3.0's
+  validator refused) and the card names the channel ramps; the measured time factors. The generator is 0.3.0's.
 - **Proxy limits** come from each app's manifest: `"proxy": {"limits": [{"prefix", "max_body_mb", "timeout_s"}]}`;
   the first matching prefix wins. The default is 1 MB / 30 s, the ceiling 4 GB / 600 s.
   - Configurator: photos and user-data 512 MB / 300 s, library-package 50 MB / 120 s.

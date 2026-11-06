@@ -441,5 +441,5 @@ fi
 if [ "$FPGA_QUALIFICATION" = true ]; then
     echo "Done. Open http://localhost:8000 and launch FPGA Configuration Flasher from Applications."
 else
-    echo "Done. Open http://localhost:8000 and launch RH850 Flasher from Applications."
+    echo "Done. Open http://localhost:8000 and launch MCU-Tools from Applications."
 fi

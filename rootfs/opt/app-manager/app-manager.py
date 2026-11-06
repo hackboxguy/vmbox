@@ -417,6 +417,7 @@ def get_app_status(app_name: str) -> dict:
 
     return {
         "name": app_name,
+        "display_name": manifest.get("display_name", ""),
         "version": manifest.get("version", "unknown"),
         "description": manifest.get("description", ""),
         "type": manifest.get("type", "service"),

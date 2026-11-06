@@ -27,7 +27,8 @@ SYSTEM_RUNTIME_PACKAGES_FILE="${SCRIPT_DIR}/packages-generic-flasher-system.txt"
 APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-generic-flasher.txt"
 FPGA_USB_FILTER_FILE="${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt"
 FPGA_WEBAPP_REVISION="eb6fd9d16e94a538d08786e46c3515008b4995b2"
-SP6BINS_REVISION="0d8ff9748532348a98b78cbfb64ef56f3f69818a"
+SP6BINS_REVISION="cdab9140cb336f9d0c00fec19f3a49622a4522e1"
+DISPTOOL_REVISION="f98cb5d263d5dabd4472589c04ad26556573cb98"
 XC3SPROG_REVISION="3df04f6d28b0f7a41239abaf824cc7f3cff7cff1"
 FXLOAD_REVISION="af574c391c70b3445fb141503a7c54db99508069"
 OPENFPGALOADER_REVISION="c166f654e2124cd72ec56698b27b7acdbc67a541"
@@ -56,13 +57,14 @@ Usage: $0 [OPTIONS]
 
 Private source layout beside vmbox/:
   fpga-flasher-webapp/  rh850-flash-tools/  sp6bins/  xc3sprog/  web-terminal/
+  space6-architecture/ (disptool, for the QVue FPGA update over UART)
 
 Missing sibling repositories are cloned from their configured private GitHub
 origins before the build. The RH850 webapp submodule is initialized as needed.
 Run with --dry-run first to inspect these actions without changing the checkout.
 
-The image uses an exact VirtualBox USB filter for the EEHB Bluebox
-(VID 0403, PID a9a0). USB 2/3 requires a version-matched Extension Pack.
+The image uses exact VirtualBox USB filters for the EEHB Bluebox (VID 0403,
+PID a9a0, or PID 6010 with the manufacturer string EEHB on older units). USB 2/3 requires a version-matched Extension Pack.
 EOF
 }
 
@@ -102,8 +104,9 @@ declare -A PRIVATE_SOURCE_URLS=(
     [sp6bins]="https://github.com/hackboxguy/sp6bins.git"
     [xc3sprog]="https://github.com/hackboxguy/xc3sprog.git"
     [web-terminal]="https://github.com/hackboxguy/web-terminal.git"
+    [space6-architecture]="https://github.com/hackboxguy/space6-architecture.git"
 )
-PRIVATE_SOURCE_DIRS=(rh850-flash-tools sp6bins xc3sprog web-terminal)
+PRIVATE_SOURCE_DIRS=(rh850-flash-tools sp6bins xc3sprog web-terminal space6-architecture)
 RH850_WEBAPP_SUBMODULE="apps/rh850-flasher-webapp"
 
 if [ "$FPGA_QUALIFICATION" = true ]; then
@@ -286,7 +289,9 @@ validate_build_inputs() {
             "${SOURCE_ROOT}/sp6bins/tools/install_rh850_firmware_catalog.py"
             "${SCRIPT_DIR}/apps/rh850-flasher-webapp/CMakeLists.txt"
             "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"
+            "${SOURCE_ROOT}/space6-architecture/code/disptool/src/CMakeLists.txt"
         )
+        validate_pinned_source "${SOURCE_ROOT}/space6-architecture" "$DISPTOOL_REVISION"
     fi
     for input in "${inputs[@]}"; do
         [ -f "$input" ] || { echo "ERROR: required build input is missing: $input" >&2; exit 1; }

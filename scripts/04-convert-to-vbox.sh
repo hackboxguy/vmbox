@@ -32,7 +32,7 @@ USB_MODE=""           # off, 1, 2, or 3 (USB controller version)
 USB_STORAGE_IDS=""    # Comma-separated USB storage vendor IDs (e.g., 8564,1234)
 ENABLE_PCAN=false     # Enable PCAN-USB adapter filter (VID 0c72)
 ENABLE_JETSON=false   # Enable NVIDIA Jetson recovery-mode filter (VID 0955)
-ENABLE_RH850_BLUEBOX=false # Enable exact EEHB Bluebox filter (0403:a9a0)
+ENABLE_RH850_BLUEBOX=false # Enable exact EEHB Bluebox filters (0403:a9a0, 0403:6010 EEHB)
 USB_FILTER_FILE=""        # Exact, profile-generated filters: name|vendor_id|product_id
 EXACT_USB_FILTERS_ONLY=false # Do not add generic VID-wide filters
 HOST_SERIAL=""        # Host serial port to pass through (e.g., /dev/ttyS0, COM1)
@@ -135,7 +135,8 @@ Optional Arguments:
   --pcan                Enable PCAN-USB adapter filter (VID 0c72, peak_usb driver)
   --jetson              Enable NVIDIA Jetson recovery-mode filter (VID 0955, any PID).
                         Needed to flash a Jetson from inside the VM. Use with --usb=3.
-  --rh850-bluebox       Enable exact EEHB Bluebox filter (VID 0403, PID a9a0).
+  --rh850-bluebox       Enable exact EEHB Bluebox filters (VID 0403, PID a9a0;
+                        PID 6010 with manufacturer EEHB).
                         Avoids claiming unrelated FTDI devices.
   --usb-filter-file=FILE
                         Add exact profile-generated filters from FILE. Each
@@ -552,6 +553,16 @@ configure_usb() {
             --productid a9a0 \
             --active yes &>/dev/null || true
         info "  Filter: EEHB Bluebox (VID 0403, PID a9a0)"
+        # Older units keep the stock FT2232 PID; the manufacturer string keeps
+        # this from claiming other FT2232 devices on the host.
+        next_filter=$((next_filter + 1))
+        VBoxManage usbfilter add "$next_filter" --target "$VM_NAME" \
+            --name "EEHB Bluebox RH850 programmer (FT2232 PID)" \
+            --vendorid 0403 \
+            --productid 6010 \
+            --manufacturer EEHB \
+            --active yes &>/dev/null || true
+        info "  Filter: EEHB Bluebox (VID 0403, PID 6010, manufacturer EEHB)"
     else
         add_default_usb_filter "$next_filter" "FTDI Serial" "0403"
     fi

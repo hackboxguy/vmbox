@@ -243,7 +243,8 @@ Run it as a normal user:
 ./build-generic-flasher-tool.sh --version=1.0.0
 ```
 
-It adds an exact `0403:a9a0` USB filter for the EEHB Bluebox. Use `--usb=2` or
+It adds exact USB filters for the EEHB Bluebox: `0403:a9a0`, and `0403:6010` with the
+manufacturer string `EEHB` for older units. Use `--usb=2` or
 `--usb=3` only when the host has the matching VirtualBox Extension Pack.
 
 ## The display appliances

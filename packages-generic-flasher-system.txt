@@ -11,3 +11,4 @@ packages/fpga-openfpgaloader-hook.sh|file://../openFPGALoader|c166f654e2124cd72e
 packages/fpga-firmware-catalog-hook.sh|file://../sp6bins|local|/usr|python3
 packages/rh850-flash-tools-hook.sh|file://../rh850-flash-tools|local|/usr|cmake
 packages/rh850-firmware-catalog-hook.sh|file://../sp6bins|local|/usr|python3
+packages/disptool-hook.sh|file://../space6-architecture/code/disptool|local|/usr|cmake,make,g++,linux-headers

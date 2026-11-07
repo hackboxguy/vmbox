@@ -4,3 +4,8 @@
 # Default bitrate for all CAN interfaces (in bps)
 # Common values: 125000, 250000, 500000, 1000000
 CAN_BITRATE=500000
+
+# Nominal sample point and automatic bus-off recovery. 0.8 matches the QVue's CAN
+# host (40 MHz clock, 40 tq per bit, sample at 80 %). Empty = the driver default.
+CAN_SAMPLE_POINT=0.8
+CAN_RESTART_MS=100

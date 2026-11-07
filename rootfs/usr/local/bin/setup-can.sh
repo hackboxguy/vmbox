@@ -10,6 +10,8 @@
 
 INTERFACE="$1"
 BITRATE="${CAN_BITRATE:-500000}"  # Default 500kbps, override via config or environment
+SAMPLE_POINT="${CAN_SAMPLE_POINT-0.8}"
+RESTART_MS="${CAN_RESTART_MS-100}"
 LOG_TAG="setup-can"
 
 # Validate interface name
@@ -42,10 +44,14 @@ sleep 1
 # Ensure can_raw module is loaded (needed for candump/cansend)
 modprobe can_raw 2>/dev/null || true
 
-logger -t "$LOG_TAG" "Configuring $INTERFACE with bitrate $BITRATE"
-
 # Configure bitrate
-if ! ip link set "$INTERFACE" type can bitrate "$BITRATE" 2>&1; then
+TIMING="bitrate $BITRATE"
+[ -n "$SAMPLE_POINT" ] && TIMING="$TIMING sample-point $SAMPLE_POINT"
+[ -n "$RESTART_MS" ] && TIMING="$TIMING restart-ms $RESTART_MS"
+logger -t "$LOG_TAG" "Configuring $INTERFACE: $TIMING"
+
+# shellcheck disable=SC2086
+if ! ip link set "$INTERFACE" type can $TIMING 2>&1; then
     logger -t "$LOG_TAG" "Error: Failed to set bitrate on $INTERFACE"
     exit 1
 fi
@@ -56,4 +62,4 @@ if ! ip link set "$INTERFACE" up 2>&1; then
     exit 1
 fi
 
-logger -t "$LOG_TAG" "$INTERFACE configured successfully (bitrate=$BITRATE)"
+logger -t "$LOG_TAG" "$INTERFACE configured successfully ($TIMING)"

@@ -36,9 +36,10 @@ start() {
             [ -n "${CAN_RESTART_MS-100}" ] && timing="$timing restart-ms ${CAN_RESTART_MS-100}"
             einfo "Configuring $name: $timing"
             # shellcheck disable=SC2086
-            ip link set "$name" type can $timing 2>/dev/null && \
-            ip link set "$name" up 2>/dev/null && \
-            configured=$((configured + 1))
+            if ip link set "$name" type can $timing 2>/dev/null; then
+                [ -n "${CAN_TXQUEUELEN-128}" ] && ip link set "$name" txqueuelen "${CAN_TXQUEUELEN-128}" 2>/dev/null
+                ip link set "$name" up 2>/dev/null && configured=$((configured + 1))
+            fi
         fi
     done
 

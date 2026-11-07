@@ -12,6 +12,7 @@ INTERFACE="$1"
 BITRATE="${CAN_BITRATE:-500000}"  # Default 500kbps, override via config or environment
 SAMPLE_POINT="${CAN_SAMPLE_POINT-0.8}"
 RESTART_MS="${CAN_RESTART_MS-100}"
+TXQUEUELEN="${CAN_TXQUEUELEN-128}"
 LOG_TAG="setup-can"
 
 # Validate interface name
@@ -54,6 +55,10 @@ logger -t "$LOG_TAG" "Configuring $INTERFACE: $TIMING"
 if ! ip link set "$INTERFACE" type can $TIMING 2>&1; then
     logger -t "$LOG_TAG" "Error: Failed to set bitrate on $INTERFACE"
     exit 1
+fi
+
+if [ -n "$TXQUEUELEN" ] && ! ip link set "$INTERFACE" txqueuelen "$TXQUEUELEN" 2>&1; then
+    logger -t "$LOG_TAG" "Warning: could not set txqueuelen $TXQUEUELEN on $INTERFACE"
 fi
 
 # Bring interface up

@@ -9,3 +9,6 @@ CAN_BITRATE=500000
 # host (40 MHz clock, 40 tq per bit, sample at 80 %). Empty = the driver default.
 CAN_SAMPLE_POINT=0.8
 CAN_RESTART_MS=100
+# Transmit queue in frames. A burst of a whole ISO-TP block (the QVue asks for
+# block size 0) overflows the kernel default of 10.
+CAN_TXQUEUELEN=128

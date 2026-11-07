@@ -64,7 +64,11 @@ origins before the build. The RH850 webapp submodule is initialized as needed.
 Run with --dry-run first to inspect these actions without changing the checkout.
 
 The image uses exact VirtualBox USB filters for the EEHB Bluebox (VID 0403,
-PID a9a0, or PID 6010 with the manufacturer string EEHB on older units). USB 2/3 requires a version-matched Extension Pack.
+PID a9a0, or PID 6010 with the manufacturer string EEHB on older units), and
+PEAK-System PCAN-USB adapters (VID 0c72, peak_usb driver, can0 in the VM) and
+the X-Rite i1 Display Pro (0765:5020, read with ArgyllCMS spotread, built from
+pinned source).
+USB 2/3 requires a version-matched Extension Pack.
 EOF
 }
 
@@ -427,7 +431,7 @@ convert_args=(
     --usb="$USB_MODE"
     --force
 )
-[ "$FPGA_QUALIFICATION" = true ] || convert_args+=(--rh850-bluebox)
+[ "$FPGA_QUALIFICATION" = true ] || convert_args+=(--rh850-bluebox --pcan --colorimeter)
 [ -f "$FPGA_USB_FILTER_FILE" ] && convert_args+=(--usb-filter-file="$FPGA_USB_FILTER_FILE")
 [ "$FPGA_QUALIFICATION" = true ] && convert_args+=(--exact-usb-filters-only)
 [ "$EXPORT_OVA" = true ] && convert_args+=(--export-ova)

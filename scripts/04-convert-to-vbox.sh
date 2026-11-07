@@ -31,6 +31,7 @@ EXPORT_OVA=false
 USB_MODE=""           # off, 1, 2, or 3 (USB controller version)
 USB_STORAGE_IDS=""    # Comma-separated USB storage vendor IDs (e.g., 8564,1234)
 ENABLE_PCAN=false     # Enable PCAN-USB adapter filter (VID 0c72)
+ENABLE_COLORIMETER=false # Enable X-Rite i1 Display Pro filter (0765:5020)
 ENABLE_JETSON=false   # Enable NVIDIA Jetson recovery-mode filter (VID 0955)
 ENABLE_RH850_BLUEBOX=false # Enable exact EEHB Bluebox filters (0403:a9a0, 0403:6010 EEHB)
 USB_FILTER_FILE=""        # Exact, profile-generated filters: name|vendor_id|product_id
@@ -133,6 +134,8 @@ Optional Arguments:
                         Example: --usbstorageid=8564,0781,1307
                         Common IDs: 8564 (Transcend), 0781 (SanDisk), 1307 (USBest)
   --pcan                Enable PCAN-USB adapter filter (VID 0c72, peak_usb driver)
+  --colorimeter         Enable X-Rite i1 Display Pro filter (VID 0765, PID 5020),
+                        for ArgyllCMS spotread in the guest
   --jetson              Enable NVIDIA Jetson recovery-mode filter (VID 0955, any PID).
                         Needed to flash a Jetson from inside the VM. Use with --usb=3.
   --rh850-bluebox       Enable exact EEHB Bluebox filters (VID 0403, PID a9a0;
@@ -168,6 +171,8 @@ USB Devices (auto-attached with --usb):
   CAN Bus Adapters:
     CANable (gs_usb)      - VID 1d50
     PCAN-USB (peak_usb)   - VID 0c72 (requires --pcan)
+  Colorimeters:
+    X-Rite i1 Display Pro - VID 0765, PID 5020 (requires --colorimeter)
   NVIDIA Jetson:
     Jetson recovery (APX) - VID 0955 (requires --jetson)
 
@@ -210,6 +215,7 @@ parse_arguments() {
             --usb=*)        USB_MODE="${arg#*=}" ;;
             --usbstorageid=*) USB_STORAGE_IDS="${arg#*=}" ;;
             --pcan)         ENABLE_PCAN=true ;;
+            --colorimeter)  ENABLE_COLORIMETER=true ;;
             --jetson)       ENABLE_JETSON=true ;;
             --rh850-bluebox) ENABLE_RH850_BLUEBOX=true ;;
             --usb-filter-file=*) USB_FILTER_FILE="${arg#*=}" ;;
@@ -617,6 +623,17 @@ configure_usb() {
         ((next_filter++))
     fi
 
+    # X-Rite i1 Display Pro colorimeter (ArgyllCMS, usbfs) - opt-in via --colorimeter
+    if [ "$ENABLE_COLORIMETER" = "true" ]; then
+        VBoxManage usbfilter add $next_filter --target "$VM_NAME" \
+            --name "X-Rite i1 Display Pro" \
+            --vendorid 0765 \
+            --productid 5020 \
+            --active yes &>/dev/null || true
+        info "  Filter: X-Rite i1 Display Pro (VID 0765, PID 5020)"
+        ((next_filter++))
+    fi
+
     # USB storage devices (configurable via --usbstorageid)
     if [ -n "$USB_STORAGE_IDS" ]; then
         local filter_index=$next_filter
@@ -753,6 +770,9 @@ show_summary() {
             echo "    CAN:     CANable (1d50), PCAN-USB (0c72)"
         else
             echo "    CAN:     CANable (1d50)"
+        fi
+        if [ "$ENABLE_COLORIMETER" = "true" ]; then
+            echo "    Color:   X-Rite i1 Display Pro (0765:5020)"
         fi
         if [ -n "$USB_STORAGE_IDS" ]; then
             echo "    Storage: $USB_STORAGE_IDS"

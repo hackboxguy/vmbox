@@ -48,13 +48,18 @@ modprobe can_raw 2>/dev/null || true
 # Configure bitrate
 TIMING="bitrate $BITRATE"
 [ -n "$SAMPLE_POINT" ] && TIMING="$TIMING sample-point $SAMPLE_POINT"
-[ -n "$RESTART_MS" ] && TIMING="$TIMING restart-ms $RESTART_MS"
-logger -t "$LOG_TAG" "Configuring $INTERFACE: $TIMING"
+logger -t "$LOG_TAG" "Configuring $INTERFACE: $TIMING${RESTART_MS:+ restart-ms $RESTART_MS}"
 
 # shellcheck disable=SC2086
 if ! ip link set "$INTERFACE" type can $TIMING 2>&1; then
     logger -t "$LOG_TAG" "Error: Failed to set bitrate on $INTERFACE"
     exit 1
+fi
+
+# Separate, since some adapters (gs_usb / candleLight) refuse it and one refused
+# option fails the whole command.
+if [ -n "$RESTART_MS" ] && ! ip link set "$INTERFACE" type can restart-ms "$RESTART_MS" 2>/dev/null; then
+    logger -t "$LOG_TAG" "Note: $INTERFACE has no automatic bus-off restart; take it down and up after a bus-off"
 fi
 
 if [ -n "$TXQUEUELEN" ] && ! ip link set "$INTERFACE" txqueuelen "$TXQUEUELEN" 2>&1; then

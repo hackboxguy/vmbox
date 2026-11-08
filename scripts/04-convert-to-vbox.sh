@@ -170,6 +170,7 @@ USB Devices (auto-attached with --usb):
     Android/AOSP devices  - VID 18d1 (Google, Harman IVI, etc.)
   CAN Bus Adapters:
     CANable (gs_usb)      - VID 1d50
+    CANable 2.0 (slcan)   - VID 16d0, PID 117e
     PCAN-USB (peak_usb)   - VID 0c72 (requires --pcan)
   Colorimeters:
     X-Rite i1 Display Pro - VID 0765, PID 5020 (requires --colorimeter)
@@ -596,6 +597,16 @@ configure_usb() {
 
     # CANable USB-CAN adapter (gs_usb driver) - VID 1d50
     add_default_usb_filter "$next_filter" "CANable" "1d50"
+    next_filter=$((next_filter + 1))
+
+    # CANable 2.0 with its stock slcan firmware (cdc_acm + slcand) - VID 16d0 PID 117e.
+    # 16d0 is a shared vendor ID (MCS), so the product ID is matched too.
+    VBoxManage usbfilter add $next_filter --target "$VM_NAME" \
+        --name "CANable 2.0 (slcan)" \
+        --vendorid 16d0 \
+        --productid 117e \
+        --active yes &>/dev/null || true
+    info "  Filter: CANable 2.0 slcan (VID 16d0, PID 117e)"
     next_filter=$((next_filter + 1))
 
     # NVIDIA Jetson in recovery mode (APX / RCM) - VID 0955 (opt-in via --jetson)

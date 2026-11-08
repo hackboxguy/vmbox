@@ -39,6 +39,13 @@ if [ "$IFTYPE" != "280" ]; then
     exit 1
 fi
 
+# A serial-line interface (slcan) has no device of its own: setup-slcan.sh, which
+# started its slcand, sets it up.
+if [ ! -e "/sys/class/net/$INTERFACE/device" ]; then
+    logger -t "$LOG_TAG" "$INTERFACE has no USB device (slcan or virtual): left as it is"
+    exit 0
+fi
+
 # Small delay to ensure hardware is fully initialized
 sleep 1
 

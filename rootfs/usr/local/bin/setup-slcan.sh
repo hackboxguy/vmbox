@@ -3,11 +3,19 @@
 # firmware, 16d0:117e) as a SocketCAN interface when its ttyACM appears.
 # Called by udev (99-can.rules): setup-slcan.sh ttyACM0
 #
-# slcand turns the tty into canN and leaves when the adapter is unplugged (hangup).
+# slcand turns the tty into canN. It does not leave when the adapter is unplugged,
+# so the tty's remove event calls this again with --remove to end it.
 # The bit rate is one of the firmware's fixed rates (-s6 = 500 kbit/s); the sample
 # point is the firmware's own, and there is no automatic bus-off restart.
 
 [ -f /etc/conf.d/can ] && . /etc/conf.d/can
+
+# Called again when the tty goes: slcand would otherwise stay behind.
+if [ "$1" = "--remove" ]; then
+    # "slcand ... /dev/ttyACM1 can0": the space keeps ttyACM1 from matching ttyACM10.
+    [ -n "$2" ] && pkill -f "slcand .*/dev/$2 " && logger -t "setup-slcan" "slcand for /dev/$2 ended"
+    exit 0
+fi
 
 TTY="$1"
 BITRATE="${CAN_BITRATE:-500000}"

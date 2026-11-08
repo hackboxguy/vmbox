@@ -8,3 +8,5 @@ SUBSYSTEM=="net", ACTION=="add", KERNEL=="can[0-9]*", RUN+="/usr/local/bin/setup
 # CANable 2.0 with its stock slcan firmware: a serial device that slcand turns into
 # canN (setup-can.sh leaves those to setup-slcan.sh, since they have no USB device).
 SUBSYSTEM=="tty", ACTION=="add", KERNEL=="ttyACM[0-9]*", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="117e", RUN+="/usr/local/bin/setup-slcan.sh $kernel"
+# Its slcand stays behind when the adapter is unplugged: end it with the tty.
+SUBSYSTEM=="tty", ACTION=="remove", KERNEL=="ttyACM[0-9]*", RUN+="/usr/local/bin/setup-slcan.sh --remove $kernel"

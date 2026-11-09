@@ -28,7 +28,8 @@ APP_SYSTEM_PACKAGES_FILE="${SCRIPT_DIR}/system-packages-generic-flasher.txt"
 FPGA_USB_FILTER_FILE="${SOURCE_ROOT}/sp6bins/firmware/fpga/usb-filters.txt"
 FPGA_WEBAPP_REVISION="eb6fd9d16e94a538d08786e46c3515008b4995b2"
 SP6BINS_REVISION="16e102ddefd33345a197bc10f01d959f9101cf1e"
-DISPTOOL_REVISION="243a41d588a649fac090fd098ab9f1a014b880c1"
+DISPTOOL_REVISION="bf919d4f18cedac81c4b59e7154f16158db205e9"
+DISP_REPORT_CARD_REVISION="223e8ea3a6d48c8c6b61d9f13d6ed20a1364d30a"
 XC3SPROG_REVISION="3df04f6d28b0f7a41239abaf824cc7f3cff7cff1"
 FXLOAD_REVISION="af574c391c70b3445fb141503a7c54db99508069"
 OPENFPGALOADER_REVISION="c166f654e2124cd72ec56698b27b7acdbc67a541"
@@ -57,7 +58,9 @@ Usage: $0 [OPTIONS]
 
 Private source layout beside vmbox/:
   fpga-flasher-webapp/  rh850-flash-tools/  sp6bins/  xc3sprog/  web-terminal/
-  space6-architecture/ (disptool, for the QVue FPGA update over UART)
+  space6-architecture/ (disptool, for the QVue FPGA update over UART, and
+                       measure-display.sh, the colour sweep of Analyze Gamut)
+  disp-report-card/ (the gamut chart of MCU-Tools' Display Measurements tab)
 
 Missing sibling repositories are cloned from their configured private GitHub
 origins before the build. The RH850 webapp submodule is initialized as needed.
@@ -109,8 +112,9 @@ declare -A PRIVATE_SOURCE_URLS=(
     [xc3sprog]="https://github.com/hackboxguy/xc3sprog.git"
     [web-terminal]="https://github.com/hackboxguy/web-terminal.git"
     [space6-architecture]="https://github.com/hackboxguy/space6-architecture.git"
+    [disp-report-card]="https://github.com/hackboxguy/disp-report-card.git"
 )
-PRIVATE_SOURCE_DIRS=(rh850-flash-tools sp6bins xc3sprog web-terminal space6-architecture)
+PRIVATE_SOURCE_DIRS=(rh850-flash-tools sp6bins xc3sprog web-terminal space6-architecture disp-report-card)
 RH850_WEBAPP_SUBMODULE="apps/rh850-flasher-webapp"
 
 if [ "$FPGA_QUALIFICATION" = true ]; then
@@ -294,8 +298,11 @@ validate_build_inputs() {
             "${SCRIPT_DIR}/apps/rh850-flasher-webapp/CMakeLists.txt"
             "${SOURCE_ROOT}/web-terminal/CMakeLists.txt"
             "${SOURCE_ROOT}/space6-architecture/code/disptool/src/CMakeLists.txt"
+            "${SOURCE_ROOT}/space6-architecture/code/disptool/display-test-framework/measure-display.sh"
+            "${SOURCE_ROOT}/disp-report-card/src/display_report_card.py"
         )
         validate_pinned_source "${SOURCE_ROOT}/space6-architecture" "$DISPTOOL_REVISION"
+        validate_pinned_source "${SOURCE_ROOT}/disp-report-card" "$DISP_REPORT_CARD_REVISION"
     fi
     for input in "${inputs[@]}"; do
         [ -f "$input" ] || { echo "ERROR: required build input is missing: $input" >&2; exit 1; }

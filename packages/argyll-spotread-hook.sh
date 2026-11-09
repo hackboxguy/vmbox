@@ -46,6 +46,17 @@ install -m 0755 ftjam-2.5.2/jam0 "$BUILD_DIR/bin/jam"
 
 unzip -q argyll.zip
 cd "Argyll_V${ARGYLL_VERSION}"
+# On Linux Argyll resets the i1 Display Pro when it closes it (i1d3.c: the HID driver
+# otherwise keeps it from re-opening). The VM's emulated OHCI controller does not take
+# that reset: the meter drops off the bus after one reading, and repeated resets have
+# taken the whole controller down. ARGYLL_I1D3_NO_RESET=1 skips it; MCU-Tools sets it,
+# and the meter re-opens without it (tested on the rig, 2026-11-09).
+sed -i 's#^\tusbflags |= icomuf_reset_before_close;#\tif (getenv("ARGYLL_I1D3_NO_RESET") == NULL)\n\t\tusbflags |= icomuf_reset_before_close;#' \
+    spectro/i1d3.c
+grep -q 'ARGYLL_I1D3_NO_RESET' spectro/i1d3.c || {
+    echo "ERROR: could not patch the i1d3 reset in spectro/i1d3.c" >&2
+    exit 1
+}
 NUMBER_OF_PROCESSORS="$(nproc)" sh makeall.sh > "$BUILD_DIR/argyll.log" 2>&1 || {
     tail -40 "$BUILD_DIR/argyll.log" >&2
     exit 1
